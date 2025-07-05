@@ -1,0 +1,48 @@
+{
+  "mesh": {
+    "Lx": 1.0,
+    "Ly": 1.0,
+    "numX": 41,
+    "numY": 41
+  },
+  "boundaries": {
+    "east": {
+      "u": ["dirichlet", 0.0],
+      "v": ["dirichlet", 0.0],
+      "p": ["neumann",   0.0]
+    },
+    "west": {
+      "u": ["dirichlet", 0.0],
+      "v": ["dirichlet", 0.0],
+      "p": ["neumann",   0.0]
+    },
+    "north": {
+      "u": ["dirichlet", 1.0],
+      "v": ["dirichlet", 0.0],
+      "p": ["neumann",   0.0]
+    },
+    "south": {
+      "u": ["dirichlet", 0.0],
+      "v": ["dirichlet", 0.0],
+      "p": ["neumann",   0.0]
+    }
+  },
+  "fluid": {
+    "nu": 1e-2
+  },
+  "time": {
+    "timeSteps": 500,
+    "CFL": 0.5,
+  },
+  "linearSolver": {
+    "p" : {
+      "tolerance": 1e-6,
+      "maxIterations": 100
+    }
+  },
+  "output": {
+    "filename": "lid",
+    "outputFrequency": 25,
+    "createRestartFile": true
+  }
+}
