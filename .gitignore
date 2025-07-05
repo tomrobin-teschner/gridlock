@@ -1,0 +1,8 @@
+# ignore build directory
+build/*
+
+# ignore solution output
+output/*
+
+# CMake artifacts
+CMakeUserPresets.json
