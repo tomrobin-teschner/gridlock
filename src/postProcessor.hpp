@@ -7,6 +7,7 @@
 #include <fstream>
 #include <iomanip>
 #include <memory>
+#include "src/infrastructure/utilities/data.hpp"
 
 class PostProcessor {
 public:

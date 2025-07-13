@@ -2,7 +2,7 @@
 
 #include "Eigen/Eigen"
 
-#include "src/utilities/data.hpp"
+#include "src/infrastructure/utilities/data.hpp"
 
 class FieldArray {
 public:

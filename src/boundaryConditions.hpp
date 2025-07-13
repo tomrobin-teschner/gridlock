@@ -7,19 +7,20 @@
 #include "nlohmann/json.hpp"
 
 #include "src/meshLooper.hpp"
+#include "src/infrastructure/utilities/data.hpp"
 
 class BoundaryConditions {
 public:
   BoundaryConditions(std::shared_ptr<FieldType> u, std::shared_ptr<FieldType> v,
     std::shared_ptr<FieldType> p, const FieldType &x, const FieldType &y, MeshLooper &looper,
-    const nlohmann::json &parameters) : _u(u), _v(v), _p(p), _x(x), _y(y), _looper(looper), _parameters(parameters),
-    _numGhostPoints(looper.getNumGhostPoints()) {}
+    const nlohmann::json &bcParameters) : _u(u), _v(v), _p(p), _x(x), _y(y), _looper(looper),
+    _bcParameters(bcParameters), _numGhostPoints(looper.getNumGhostPoints()) {}
 
   void applyBCs(std::string name, std::shared_ptr<FieldType> field) {
-    auto eastBCs = _parameters["boundaries"]["east"][name];
-    auto westBCs = _parameters["boundaries"]["west"][name];
-    auto northBCs = _parameters["boundaries"]["north"][name];
-    auto southBCs = _parameters["boundaries"]["south"][name];
+    auto eastBCs = _bcParameters["boundaries"]["east"][name];
+    auto westBCs = _bcParameters["boundaries"]["west"][name];
+    auto northBCs = _bcParameters["boundaries"]["north"][name];
+    auto southBCs = _bcParameters["boundaries"]["south"][name];
     
     bool isDirichletEast = eastBCs[0] == "dirichlet" ? true : false;
     double valueEast = eastBCs[1];
@@ -101,6 +102,6 @@ private:
   std::shared_ptr<FieldType> _u, _v, _p;
   const FieldType &_x, &_y;
   MeshLooper &_looper;
-  const nlohmann::json &_parameters;
+  const nlohmann::json &_bcParameters;
   int _numGhostPoints;
 };

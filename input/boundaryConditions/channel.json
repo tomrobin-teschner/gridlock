@@ -1,0 +1,24 @@
+{
+  "boundaries": {
+    "east": {
+      "u": ["neumann",   0.0],
+      "v": ["neumann",   0.0],
+      "p": ["dirichlet", 0.0]
+    },
+    "west": {
+      "u": ["dirichlet", 1.0],
+      "v": ["dirichlet", 0.0],
+      "p": ["neumann",   0.0]
+    },
+    "north": {
+      "u": ["dirichlet", 0.0],
+      "v": ["dirichlet", 0.0],
+      "p": ["neumann",   0.0]
+    },
+    "south": {
+      "u": ["dirichlet", 0.0],
+      "v": ["dirichlet", 0.0],
+      "p": ["neumann",   0.0]
+    }
+  }
+}

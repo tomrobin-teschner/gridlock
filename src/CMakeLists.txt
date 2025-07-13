@@ -3,3 +3,6 @@ target_sources(${CMAKE_PROJECT_NAME}
   PUBLIC FILE_SET HEADERS
   BASE_DIRS ${PROJECT_SOURCE_DIR}
 )
+
+add_subdirectory(infrastructure)
+add_subdirectory(timeStep)
