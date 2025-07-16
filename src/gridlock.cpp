@@ -11,12 +11,13 @@
 #include <sstream>
 
 #include "src/meshLooper.hpp"
-#include "src/postProcessor.hpp"
 #include "src/boundaryConditions.hpp"
 #include "src/timeStep/timeStep.hpp"
+#include "src/infrastructure/parameterFile/parameterFile.hpp"
 #include "src/infrastructure/ui/ui.hpp"
 #include "src/infrastructure/stopWatch/stopWatch.hpp"
 #include "src/infrastructure/utilities/data.hpp"
+#include "src/postProcessing/postProcessing.hpp"
 
 #include "Eigen/Eigen"
 #include "nlohmann/json.hpp"
@@ -31,43 +32,11 @@ auto map1Dto2D = [](int index, int numX, int numY) { return std::make_tuple(inde
 
 int main(int argv, char* argc[]) {
 
-  // delete the output folder and then recreate it
-  std::filesystem::remove_all("output/");
-  std::filesystem::create_directories("output/");
-
-  // reading JSON input file
-  std::ifstream inputFile("input/solver.json");
-  if (!inputFile.is_open()) {
-    std::cerr << "Error: Could not open input file: input/solver.json" << std::endl;
-    return -1;
-  }
-
-  // in case file could be read, parse it from JSON
-  nlohmann::json parameters;
-  inputFile >> parameters;
-  inputFile.close();
-
-  // read mesh file
-  nlohmann::json meshParameters;
-  std::string meshFileName = parameters["meshFile"];
-  std::ifstream meshFile(meshFileName);
-  if (!meshFile.is_open()) {
-    std::cerr << "Error: Could not open mesh file: " + meshFileName << std::endl;
-    return -1;
-  }
-  meshFile >> meshParameters;
-  meshFile.close();
-
-  // read boundary conditions file
-  nlohmann::json bcParameters;
-  std::string bcFileName = parameters["boundaryConditionFile"];
-  std::ifstream bcFile(bcFileName);
-  if (!bcFile.is_open()) {
-    std::cerr << "Error: Could not open boundary conditions file: " + bcFileName << std::endl;
-    return -1;
-  }
-  bcFile >> bcParameters;
-  bcFile.close();
+  // Read parameter files
+  ParameterFile parameterFile("input/solver.json");
+  auto solverParameters = parameterFile.getSolverParameters();
+  auto meshParameters = parameterFile.getMeshParameters();
+  auto bcParameters = parameterFile.getBoundaryConditionsParameters();
 
   // check if problem is a fully neumann boundary value problem for the pressure
   auto pWestBC = bcParameters["boundaries"]["west"]["p"][0];
@@ -90,23 +59,23 @@ int main(int argv, char* argc[]) {
   int totalSizeY = numY + 2 * numGhostPoints;
   
   // Time stepping parameters
-  int timeSteps = parameters["time"]["timeSteps"];
-  double CFL = parameters["time"]["CFL"];
-  int outputFrequency = parameters["output"]["outputFrequency"];
+  int timeSteps = solverParameters["time"]["timeSteps"];
+  double CFL = solverParameters["time"]["CFL"];
+  int outputFrequency = solverParameters["output"]["outputFrequency"];
 
   // residual and convergence checking
   int uIter = 0; int vIter = 0; int pIter = 0;
   double resU = 1.0; double resV = 1.0; double resP = 1.0;
   double resUNorm = 1.0; double resVNorm = 1.0; double resPNorm = 1.0;
-  double epsU = parameters["convergence"]["u"];
-  double epsV = parameters["convergence"]["v"];
-  double epsP = parameters["convergence"]["p"];
+  double epsU = solverParameters["convergence"]["u"];
+  double epsV = solverParameters["convergence"]["v"];
+  double epsP = solverParameters["convergence"]["p"];
 
   // set up picard linearisation
-  int maxPicardIterations = parameters["linearisation"]["maxPicardIterations"];
-  double picardToleranceU = parameters["linearisation"]["tolerance"]["u"];
-  double picardToleranceV = parameters["linearisation"]["tolerance"]["v"];
-  double picardToleranceP = parameters["linearisation"]["tolerance"]["p"];
+  int maxPicardIterations = solverParameters["linearisation"]["maxPicardIterations"];
+  double picardToleranceU = solverParameters["linearisation"]["tolerance"]["u"];
+  double picardToleranceV = solverParameters["linearisation"]["tolerance"]["v"];
+  double picardToleranceP = solverParameters["linearisation"]["tolerance"]["p"];
   double resUPicard = 0.0; double resVPicard = 0.0; double resPPicard = 0.0;
   double resUPicardNorm = 1.0; double resVPicardNorm = 1.0; double resPPicardNorm = 1.0;
 
@@ -118,20 +87,20 @@ int main(int argv, char* argc[]) {
   Eigen::VectorXd bp((numX) * (numY));
   Eigen::VectorXd xp((numX) * (numY));
   Eigen::SparseMatrix<double> Ap((numX) * (numY), (numX) * (numY));
-  double alphaP = parameters["linearSolver"]["p"]["underRelaxation"];
+  double alphaP = solverParameters["linearSolver"]["p"]["underRelaxation"];
   
   Eigen::VectorXd bu((numX) * (numY));
   Eigen::VectorXd xu((numX) * (numY));
   Eigen::SparseMatrix<double> Au((numX) * (numY), (numX) * (numY));
-  double alphaU = parameters["linearSolver"]["u"]["underRelaxation"];
+  double alphaU = solverParameters["linearSolver"]["u"]["underRelaxation"];
   
   Eigen::VectorXd bv((numX) * (numY));
   Eigen::VectorXd xv((numX) * (numY));
   Eigen::SparseMatrix<double> Av((numX) * (numY), (numX) * (numY));
-  double alphaV = parameters["linearSolver"]["v"]["underRelaxation"];
+  double alphaV = solverParameters["linearSolver"]["v"]["underRelaxation"];
 
   // physical properties
-  double nu = parameters["fluid"]["nu"];
+  double nu = solverParameters["fluid"]["nu"];
 
   // Mesh generation
   auto x = field(totalSizeX, totalSizeY);
@@ -170,8 +139,8 @@ int main(int argv, char* argc[]) {
   bc.applyBCs("p", p);
 
   // create post processing object
-  auto outputFileName = parameters["output"]["filename"];
-  PostProcessor output(outputFileName, numX, numY, numGhostPoints, x, y);
+  auto outputFileName = solverParameters["output"]["filename"];
+  PostProcessing output(outputFileName, numX, numY, numGhostPoints, x, y);
   output.registerField("u", u);
   output.registerField("v", v);
   output.registerField("p", p);
@@ -186,7 +155,7 @@ int main(int argv, char* argc[]) {
   StopWatch timer(timeSteps);
 
   // Create time step calculation object
-  TimeStep timeStep(parameters, looper);
+  TimeStep timeStep(solverParameters, looper);
 
   // loop over time
   double totalTime = 0.0;
@@ -321,8 +290,8 @@ int main(int argv, char* argc[]) {
       // solve pressure poisson solver with the preconditioned Conjugate Gradient method
       Eigen::BiCGSTAB<Eigen::SparseMatrix<double>, Eigen::IncompleteLUT<double>> bicgstabU;
       bicgstabU.compute(Au);
-      bicgstabU.setMaxIterations(parameters["linearSolver"]["u"]["maxIterations"]);
-      bicgstabU.setTolerance(parameters["linearSolver"]["u"]["tolerance"]);
+      bicgstabU.setMaxIterations(solverParameters["linearSolver"]["u"]["maxIterations"]);
+      bicgstabU.setTolerance(solverParameters["linearSolver"]["u"]["tolerance"]);
 
       xu = bicgstabU.solve(bu);
       uIter = bicgstabU.iterations();
@@ -438,8 +407,8 @@ int main(int argv, char* argc[]) {
       // solve pressure poisson solver with the preconditioned Conjugate Gradient method
       Eigen::BiCGSTAB<Eigen::SparseMatrix<double>, Eigen::IncompleteLUT<double>> bicgstabV;
       bicgstabV.compute(Av);
-      bicgstabV.setMaxIterations(parameters["linearSolver"]["v"]["maxIterations"]);
-      bicgstabV.setTolerance(parameters["linearSolver"]["v"]["tolerance"]);
+      bicgstabV.setMaxIterations(solverParameters["linearSolver"]["v"]["maxIterations"]);
+      bicgstabV.setTolerance(solverParameters["linearSolver"]["v"]["tolerance"]);
 
       xv = bicgstabV.solve(bv);
       vIter = bicgstabV.iterations();
@@ -564,8 +533,8 @@ int main(int argv, char* argc[]) {
       // solve pressure poisson solver with the preconditioned Conjugate Gradient method
       Eigen::BiCGSTAB<Eigen::SparseMatrix<double>, Eigen::IncompleteLUT<double>> bicgstabP;
       bicgstabP.compute(Ap);
-      bicgstabP.setMaxIterations(parameters["linearSolver"]["p"]["maxIterations"]);
-      bicgstabP.setTolerance(parameters["linearSolver"]["p"]["tolerance"]);
+      bicgstabP.setMaxIterations(solverParameters["linearSolver"]["p"]["maxIterations"]);
+      bicgstabP.setTolerance(solverParameters["linearSolver"]["p"]["tolerance"]);
 
       xp = bicgstabP.solve(bp);
       pIter = bicgstabP.iterations();
@@ -650,7 +619,7 @@ int main(int argv, char* argc[]) {
     resP /= resPNorm;
 
     if (outputFrequency != -1 && (t + 1) % outputFrequency == 0) 
-      output.write(t);
+      output.write(t + 1);
 
     // determine total time at the end of time step
     totalTime = totalTime + dt;
@@ -705,7 +674,7 @@ int main(int argv, char* argc[]) {
 
   // draw end message if simulation has not converged
   if (resU > epsU || resV > epsV || resP > epsP)
-    ui.draw(0, 16, "Simulation finished but did not converge. Press any key to continue!");
+    ui.draw(17, 0, "Simulation finished but did not converge. Press any key to continue!");
   ui.block();
 
   return 0;

@@ -2,7 +2,7 @@
   "meshFile": "input/mesh/channel.json",
   "boundaryConditionFile": "input/boundaryConditions/channel.json",
   "fluid": {
-    "nu": 1e-2
+    "nu": 1e-3
   },
   "time": {
     "timeSteps": 500,
@@ -12,7 +12,7 @@
     "alphaSER": 1.0
   },
   "linearisation": {
-    "maxPicardIterations": 5,
+    "maxPicardIterations": 1,
     "tolerance": {
       "u": 1e-3,
       "v": 1e-3,

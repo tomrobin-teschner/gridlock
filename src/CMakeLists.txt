@@ -6,3 +6,4 @@ target_sources(${CMAKE_PROJECT_NAME}
 
 add_subdirectory(infrastructure)
 add_subdirectory(timeStep)
+add_subdirectory(postProcessing)
