@@ -33,6 +33,12 @@ cmake --build build/ --config Debug
 Finally, run the code:
 
 ```bash
-./build/AI-CFD.exe
+./build/gridlock
+```
+
+Or, if you are on Windows, use:
+
+```bash
+./build/Release/gridlock.exe
 ```
 

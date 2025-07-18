@@ -7,9 +7,10 @@
 
 #include "nlohmann/json.hpp"
 
-#include "src/meshLooper.hpp"
+#include "src/meshLooper/meshLooper.hpp"
 
 #include "src/infrastructure/utilities/data.hpp"
+#include "src/fieldArray/fieldArray.hpp"
 
 class TimeStep {
 public:
@@ -20,8 +21,8 @@ public:
   ~TimeStep() = default;
 
 public:
-  TimeStepType getTimeStep(std::shared_ptr<FieldType> u, std::shared_ptr<FieldType> v, std::shared_ptr<FieldType> p,
-    double dx, double dy, double resU, double resV, double resP);
+  TimeStepType getTimeStep(FieldArray &u, FieldArray &v, double dx, double dy, double resU, double resV,
+    double resP);
 
 private:
   MeshLooper _looper;

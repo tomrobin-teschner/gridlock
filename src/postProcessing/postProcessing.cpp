@@ -7,7 +7,7 @@ PostProcessing::PostProcessing(std::string filename, int numX, int numY, int num
   std::filesystem::create_directories("output/");
 }
   
-void PostProcessing::registerField(std::string name, std::shared_ptr<FieldType> field) {
+void PostProcessing::registerField(std::string name, FieldArray *field) {
   _fields[name] = field;
 }
 
@@ -37,7 +37,7 @@ void PostProcessing::write(int iteration) {
     for (int i = _numGhostPoints; i < _numX + _numGhostPoints; ++i) {
       solution << _x[i][j] << " " << _y[i][j];
       for (const auto &fields : _fields)
-        solution << " " << (*fields.second)[i][j];
+        solution << " " << (*fields.second)[i, j];
       solution << "\n";
     }
 }

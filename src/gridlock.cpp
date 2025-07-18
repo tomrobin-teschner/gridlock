@@ -10,7 +10,7 @@
 #include <chrono>
 #include <sstream>
 
-#include "src/meshLooper.hpp"
+#include "src/meshLooper/meshLooper.hpp"
 #include "src/boundaryConditions.hpp"
 #include "src/timeStep/timeStep.hpp"
 #include "src/infrastructure/parameterFile/parameterFile.hpp"
@@ -18,6 +18,7 @@
 #include "src/infrastructure/stopWatch/stopWatch.hpp"
 #include "src/infrastructure/utilities/data.hpp"
 #include "src/postProcessing/postProcessing.hpp"
+#include "src/fieldArray/fieldArray.hpp"
 
 #include "Eigen/Eigen"
 #include "nlohmann/json.hpp"
@@ -115,25 +116,38 @@ int main(int argv, char* argc[]) {
   });
 
   // solution vectors
-  auto u = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
-  auto v = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
-  auto p = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
+  FieldArray u(totalSizeX, totalSizeY);
+  FieldArray v(totalSizeX, totalSizeY);
+  FieldArray p(totalSizeX, totalSizeY);
 
-  auto uOld = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
-  auto vOld = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
-  auto pOld = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
+  FieldArray uOld(totalSizeX, totalSizeY);
+  FieldArray vOld(totalSizeX, totalSizeY);
+  FieldArray pOld(totalSizeX, totalSizeY);
 
-  auto uPicardOld = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
-  auto vPicardOld = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
-  auto pPicardOld = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
+  FieldArray uPicardOld(totalSizeX, totalSizeY);
+  FieldArray vPicardOld(totalSizeX, totalSizeY);
+  FieldArray pPicardOld(totalSizeX, totalSizeY);
+
+  // auto u = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
+  // auto v = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
+  // auto p = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
+
+  // auto uOld = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
+  // auto vOld = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
+  // auto pOld = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
+
+  // auto uPicardOld = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
+  // auto vPicardOld = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
+  // auto pPicardOld = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
 
   // Initial conditions
-  looper.loopAll([u, v, p](int i, int j) {
-    (*u)[i][j] = 0.0; (*v)[i][j] = 0.0; (*p)[i][j] = 0.0;
+  looper.loopAll([&u, &v, &p](int i, int j) {
+    u[i, j] = 0.0; v[i, j] = 0.0; p[i, j] = 0.0;
+    // (*u)[i][j] = 0.0; (*v)[i][j] = 0.0; (*p)[i][j] = 0.0;
   });
 
   // Instantiate boundary condition class
-  BoundaryConditions bc(u, v, p, x, y, looper, bcParameters);
+  BoundaryConditions bc(x, y, looper, bcParameters);
   bc.applyBCs("u", u);
   bc.applyBCs("v", v);
   bc.applyBCs("p", p);
@@ -141,9 +155,9 @@ int main(int argv, char* argc[]) {
   // create post processing object
   auto outputFileName = solverParameters["output"]["filename"];
   PostProcessing output(outputFileName, numX, numY, numGhostPoints, x, y);
-  output.registerField("u", u);
-  output.registerField("v", v);
-  output.registerField("p", p);
+  output.registerField("u", &u);
+  output.registerField("v", &v);
+  output.registerField("p", &p);
 
   // create residual file for plotting later
   std::ofstream residualsFile;
@@ -163,10 +177,11 @@ int main(int argv, char* argc[]) {
   for (t = 0; t<timeSteps; ++t) {
     
     // create deep copy of old solution
-    *uOld = *u; *vOld = *v; *pOld = *p;
+    uOld = u; vOld = v; pOld = p;
+    // *uOld = *u; *vOld = *v; *pOld = *p;
 
-    // determien stable timestep
-    auto [dt, CFL] = timeStep.getTimeStep(u, v, p, dx, dy, resU, resV, resP);
+    // determine stable timestep
+    auto [dt, CFL] = timeStep.getTimeStep(u, v, dx, dy, resU, resV, resP);
 
     // get timings
     auto [elapsedHH, elapsedMM, elapsedSS] = timer.elapsed();
@@ -178,20 +193,21 @@ int main(int argv, char* argc[]) {
 
     auto resUStart = 0.0; auto resVStart = 0.0; auto resPStart = 0.0;
     looper.loopWithBoundaries([&](int i, int j) {
-      resUStart += std::fabs((*u)[i][j]);
-      resVStart += std::fabs((*v)[i][j]);
-      resPStart += std::fabs((*p)[i][j]);
+      resUStart += std::fabs(u[i, j]);
+      resVStart += std::fabs(v[i, j]);
+      resPStart += std::fabs(p[i, j]);
     });
 
     // outer (picard) loop
     for (int k = 0; k < maxPicardIterations; ++k) {
 
       // create deep copy of old solution
-      *uPicardOld = *u; *vPicardOld = *v; *pPicardOld = *p;
+      uPicardOld = u; vPicardOld = v; pPicardOld = p;
+      // *uPicardOld = *u; *vPicardOld = *v; *pPicardOld = *p;
 
       auto resUPicardStart = 0.0;
-      looper.loopWithBoundaries([&](int i, int j) {
-        resUPicardStart += std::fabs((*u)[i][j]);
+      looper.loopWithBoundaries([&resUPicardStart, &u](int i, int j) {
+        resUPicardStart += std::fabs(u[i, j]);
       });
 
       // solve the u-momentum equations
@@ -209,10 +225,10 @@ int main(int argv, char* argc[]) {
         auto jm1 = map2Dto1D(idx, jdx - 1, numX, numY);
         
         // compute coefficients for matrix
-        auto umax = std::max((*uPicardOld)[i][j], 0.0) / dx;
-        auto umin = std::min((*uPicardOld)[i][j], 0.0) / dx;
-        auto vmax = std::max((*vPicardOld)[i][j], 0.0) / dy;
-        auto vmin = std::min((*vPicardOld)[i][j], 0.0) / dy;
+        auto umax = std::max(uPicardOld[i, j], 0.0) / dx;
+        auto umin = std::min(uPicardOld[i, j], 0.0) / dx;
+        auto vmax = std::max(vPicardOld[i, j], 0.0) / dy;
+        auto vmin = std::min(vPicardOld[i, j], 0.0) / dy;
         auto nudx2 = nu / std::pow(dx, 2);
         auto nudy2 = nu / std::pow(dy, 2);
         
@@ -226,7 +242,7 @@ int main(int argv, char* argc[]) {
         Au.coeffRef(ic, ic) = aP;
 
         // set up right-hand side
-        bu(ic) = (*uOld)[i][j] / dt;
+        bu(ic) = uOld[i, j] / dt;
 
         // west
         if (idx == 0) {
@@ -300,7 +316,7 @@ int main(int argv, char* argc[]) {
       looper.loopWithBoundaries([&](int i, int j) {
         auto idx = i - numGhostPoints;
         auto jdx = j - numGhostPoints;
-        (*u)[i][j] = alphaU * xu(map2Dto1D(idx, jdx, numX, numY)) + (1.0 - alphaU) * (*uPicardOld)[i][j];
+        u[i, j] = alphaU * xu(map2Dto1D(idx, jdx, numX, numY)) + (1.0 - alphaU) * uPicardOld[i, j];
       });
       
       // ensure ghost cells receive most up to date values
@@ -308,7 +324,7 @@ int main(int argv, char* argc[]) {
 
       auto resVPicardStart = 0.0;
       looper.loopWithBoundaries([&](int i, int j) {
-        resVPicardStart += std::fabs((*v)[i][j]);
+        resVPicardStart += std::fabs(v[i, j]);
       });
 
       // solve the v-momentum equations
@@ -326,10 +342,10 @@ int main(int argv, char* argc[]) {
         auto jm1 = map2Dto1D(idx, jdx - 1, numX, numY);
 
         // compute coefficients for matrix
-        auto umax = std::max((*uPicardOld)[i][j], 0.0) / dx;
-        auto umin = std::min((*uPicardOld)[i][j], 0.0) / dx;
-        auto vmax = std::max((*vPicardOld)[i][j], 0.0) / dy;
-        auto vmin = std::min((*vPicardOld)[i][j], 0.0) / dy;
+        auto umax = std::max(uPicardOld[i, j], 0.0) / dx;
+        auto umin = std::min(uPicardOld[i, j], 0.0) / dx;
+        auto vmax = std::max(vPicardOld[i, j], 0.0) / dy;
+        auto vmin = std::min(vPicardOld[i, j], 0.0) / dy;
         auto nudx2 = nu / std::pow(dx, 2);
         auto nudy2 = nu / std::pow(dy, 2);
 
@@ -343,7 +359,7 @@ int main(int argv, char* argc[]) {
         Av.coeffRef(ic, ic) = aP;
 
         // set up right-hand side
-        bv(ic) = (*vOld)[i][j] / dt;
+        bv(ic) = vOld[i, j] / dt;
 
         // west
         if (idx == 0) {
@@ -417,7 +433,7 @@ int main(int argv, char* argc[]) {
       looper.loopWithBoundaries([&](int i, int j) {
         auto idx = i - numGhostPoints;
         auto jdx = j - numGhostPoints;
-        (*v)[i][j] = alphaV * xv(map2Dto1D(idx, jdx, numX, numY)) + (1.0 - alphaV) * (*vPicardOld)[i][j];
+        v[i, j] = alphaV * xv(map2Dto1D(idx, jdx, numX, numY)) + (1.0 - alphaV) * vPicardOld[i, j];
       });
       
       // ensure ghost cells receive most up to date values
@@ -425,7 +441,7 @@ int main(int argv, char* argc[]) {
 
       auto resPPicardStart = 0.0;
       looper.loopWithBoundaries([&](int i, int j) {
-        resPPicardStart += std::fabs((*p)[i][j]);
+        resPPicardStart += std::fabs(p[i, j]);
       });
 
       // set up right-hand side and coefficient matrix
@@ -443,8 +459,8 @@ int main(int argv, char* argc[]) {
         auto jm1 = map2Dto1D(idx, jdx - 1, numX, numY);
 
         // set up right-hand side
-        auto dudx = ((*u)[i + 1][j] - (*u)[i - 1][j]) / (2.0 * dx);
-        auto dvdy = ((*v)[i][j + 1] - (*v)[i][j - 1]) / (2.0 * dy);
+        auto dudx = (u[i + 1, j] - u[i - 1, j]) / (2.0 * dx);
+        auto dvdy = (v[i, j + 1] - v[i, j - 1]) / (2.0 * dy);
         auto div = (dudx + dvdy);
 
         // set up matrix coefficients
@@ -543,20 +559,18 @@ int main(int argv, char* argc[]) {
       looper.loopWithBoundaries([&](int i, int j) {
         auto idx = i - numGhostPoints;
         auto jdx = j - numGhostPoints;
-        if (idx == 0 && jdx == 0 && fullyNeumann) {
-          (*p)[i][j] = 0.0;
-        } else {
-          (*p)[i][j] = alphaP * xp(map2Dto1D(idx, jdx, numX, numY)) + (1.0 - alphaP) * (*p)[i][j];
-        }
+        p[i, j] = alphaP * xp(map2Dto1D(idx, jdx, numX, numY)) + (1.0 - alphaP) * pPicardOld[i, j];
       });
+
+      if (fullyNeumann) p[numGhostPoints, numGhostPoints] = 0.0;
       
       // ensure ghost cells receive most up to date values
       bc.applyBCs("p", p);
       
       // update velocity
       looper.loopWithBoundaries([&](int i, int j) {
-        (*u)[i][j] = (*u)[i][j] - dt * ((*p)[i + 1][j] - (*p)[i - 1][j]) / (2.0 * dx);
-        (*v)[i][j] = (*v)[i][j] - dt * ((*p)[i][j + 1] - (*p)[i][j - 1]) / (2.0 * dy);
+        u[i, j] = u[i, j] - dt * (p[i + 1, j] - p[i - 1, j]) / (2.0 * dx);
+        v[i, j] = v[i, j] - dt * (p[i, j + 1] - p[i, j - 1]) / (2.0 * dy);
       });
       
       bc.applyBCs("u", u);
@@ -565,7 +579,7 @@ int main(int argv, char* argc[]) {
       // compute u-momentum picard residuals
       auto resUPicardEnd = 0.0;
       looper.loopWithBoundaries([&](int i, int j) {
-        resUPicardEnd += std::fabs((*u)[i][j]);
+        resUPicardEnd += std::fabs(u[i, j]);
       });
       
       resUPicard = std::fabs(resUPicardStart - resUPicardEnd);
@@ -575,7 +589,7 @@ int main(int argv, char* argc[]) {
       // compute v-momentum picard residuals
       auto resVPicardEnd = 0.0;
       looper.loopWithBoundaries([&](int i, int j) {
-        resVPicardEnd += std::fabs((*v)[i][j]);
+        resVPicardEnd += std::fabs(v[i, j]);
       });
       
       resVPicard = std::fabs(resVPicardStart - resVPicardEnd);
@@ -585,7 +599,7 @@ int main(int argv, char* argc[]) {
       // compute pressure picard residuals
       auto resPPicardEnd = 0.0;
       looper.loopWithBoundaries([&](int i, int j) {
-        resPPicardEnd += std::fabs((*p)[i][j]);
+        resPPicardEnd += std::fabs(p[i, j]);
       });
 
       resPPicard = std::fabs(resPPicardStart - resPPicardEnd);
@@ -603,9 +617,9 @@ int main(int argv, char* argc[]) {
     auto resVEnd = 0.0;
     auto resPEnd = 0.0;
     looper.loopWithBoundaries([&](int i, int j) {
-      resUEnd += std::fabs((*u)[i][j]);
-      resVEnd += std::fabs((*v)[i][j]);
-      resPEnd += std::fabs((*p)[i][j]);
+      resUEnd += std::fabs(u[i, j]);
+      resVEnd += std::fabs(v[i, j]);
+      resPEnd += std::fabs(p[i, j]);
     });
 
     resU = std::fabs(resUStart - resUEnd);
@@ -631,8 +645,8 @@ int main(int argv, char* argc[]) {
     // check divergence of velocity field
     double divU = 0.0;
     looper.loopInterior([&](int i, int j) { 
-      auto dudx = ((*u)[i + 1][j] - (*u)[i - 1][j]) / (2.0 * dx);
-      auto dvdy = ((*v)[i][j + 1] - (*v)[i][j - 1]) / (2.0 * dy);
+      auto dudx = (u[i + 1, j] - u[i - 1, j]) / (2.0 * dx);
+      auto dvdy = (v[i, j + 1] - v[i, j - 1]) / (2.0 * dy);
       divU = dudx + dvdy;
     });
 

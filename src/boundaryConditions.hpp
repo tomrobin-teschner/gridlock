@@ -6,17 +6,16 @@
 
 #include "nlohmann/json.hpp"
 
-#include "src/meshLooper.hpp"
+#include "src/meshLooper/meshLooper.hpp"
 #include "src/infrastructure/utilities/data.hpp"
+#include "src/fieldArray/fieldArray.hpp"
 
 class BoundaryConditions {
 public:
-  BoundaryConditions(std::shared_ptr<FieldType> u, std::shared_ptr<FieldType> v,
-    std::shared_ptr<FieldType> p, const FieldType &x, const FieldType &y, MeshLooper &looper,
-    const nlohmann::json &bcParameters) : _u(u), _v(v), _p(p), _x(x), _y(y), _looper(looper),
-    _bcParameters(bcParameters), _numGhostPoints(looper.getNumGhostPoints()) {}
+  BoundaryConditions(const FieldType &x, const FieldType &y, MeshLooper &looper, const nlohmann::json &bcParameters)
+    : _x(x), _y(y), _looper(looper), _bcParameters(bcParameters), _numGhostPoints(looper.getNumGhostPoints()) {}
 
-  void applyBCs(std::string name, std::shared_ptr<FieldType> field) {
+  void applyBCs(std::string name, FieldArray &field) {
     auto eastBCs = _bcParameters["boundaries"]["east"][name];
     auto westBCs = _bcParameters["boundaries"]["west"][name];
     auto northBCs = _bcParameters["boundaries"]["north"][name];
@@ -24,72 +23,72 @@ public:
     
     bool isDirichletEast = eastBCs[0] == "dirichlet" ? true : false;
     double valueEast = eastBCs[1];
-    _looper.eastBC([this, isDirichletEast, valueEast, field](int i, int j) {
+    _looper.eastBC([this, isDirichletEast, valueEast, &field](int i, int j) {
       auto spacing = _x[i][j] - _x[i - 1][j];
       
       if (isDirichletEast) {
-        (*field)[i][j] = valueEast;
+        field[i, j] = valueEast;
         for (int k = 0; k < _numGhostPoints; ++k) {
-          (*field)[i + 1 + k][j] = dirichlet(valueEast, (*field)[i - 1 - k][j]);
+          field[i + 1 + k, j] = dirichlet(valueEast, field[i - 1 - k, j]);
         }   
       } else if (!isDirichletEast) {
-        (*field)[i][j] = (*field)[i - 1][j];
+        field[i, j] = field[i - 1, j];
         for (int k = 0; k < _numGhostPoints; ++k) {
-          (*field)[i + 1 + k][j] = neumann(valueEast, (*field)[i - 1 - k][j], spacing);
+          field[i + 1 + k, j] = neumann(valueEast, field[i - 1 - k, j], spacing);
         }   
       }  
     });
     
     bool isDirichletWest = westBCs[0] == "dirichlet" ? true : false;
     double valueWest = westBCs[1];  
-    _looper.westBC([this, isDirichletWest, valueWest, field](int i, int j) {
+    _looper.westBC([this, isDirichletWest, valueWest, &field](int i, int j) {
       auto spacing = _x[i + 1][j] - _x[i][j];
       
       if (isDirichletWest) {
-        (*field)[i][j] = valueWest;
+        field[i,j] = valueWest;
         for (int k = 0; k < _numGhostPoints; ++k) {
-          (*field)[i - 1 - k][j] = dirichlet(valueWest, (*field)[i + 1 + k][j]);
+          field[i - 1 - k, j] = dirichlet(valueWest, field[i + 1 + k, j]);
         }   
       } else if (!isDirichletWest) {
-        (*field)[i][j] = (*field)[i + 1][j];
+        field[i,j] = field[i + 1, j];
         for (int k = 0; k < _numGhostPoints; ++k) {
-          (*field)[i - 1 - k][j] = neumann(valueWest, (*field)[i + 1 + k][j], spacing);
+          field[i - 1 - k, j] = neumann(valueWest, field[i + 1 + k, j], spacing);
         }   
       }
     });
 
     bool isDirichletNorth = northBCs[0] == "dirichlet" ? true : false;
     double valueNorth = northBCs[1];
-    _looper.northBC([this, isDirichletNorth, valueNorth, field](int i, int j) {
+    _looper.northBC([this, isDirichletNorth, valueNorth, &field](int i, int j) {
       auto spacing = _y[i][j] - _y[i][j - 1];
       
       if (isDirichletNorth) {
-        (*field)[i][j] = valueNorth;
+        field[i,j] = valueNorth;
         for (int k = 0; k < _numGhostPoints; ++k) {
-          (*field)[i][j + 1 + k] = dirichlet(valueNorth, (*field)[i][j - 1 - k]);
+          field[i, j + 1 + k] = dirichlet(valueNorth, field[i, j - 1 - k]);
         }   
       } else if (!isDirichletNorth) {
-        (*field)[i][j] = (*field)[i][j - 1];
+        field[i,j] = field[i, j - 1];
         for (int k = 0; k < _numGhostPoints; ++k) {
-          (*field)[i][j + 1 + k] = neumann(valueNorth, (*field)[i][j - 1 - k], spacing);
+          field[i, j + 1 + k] = neumann(valueNorth, field[i, j - 1 - k], spacing);
         }   
       }    
     });
 
     bool isDirichletSouth = southBCs[0] == "dirichlet" ? true : false;
     double valueSouth = southBCs[1];
-    _looper.southBC([this, isDirichletSouth, valueSouth, field](int i, int j) {
+    _looper.southBC([this, isDirichletSouth, valueSouth, &field](int i, int j) {
       auto spacing = _y[i][j + 1] - _y[i][j];
       
       if (isDirichletSouth) {
-        (*field)[i][j] = valueSouth;
+        field[i,j] = valueSouth;
         for (int k = 0; k < _numGhostPoints; ++k) {
-          (*field)[i][j - 1 - k] = dirichlet(valueSouth, (*field)[i][j + 1 + k]);
+          field[i, j - 1 - k] = dirichlet(valueSouth, field[i, j + 1 + k]);
         }   
       } else if (!isDirichletSouth) {
-        (*field)[i][j] = (*field)[i][j + 1];
+        field[i,j] = field[i, j + 1];
         for (int k = 0; k < _numGhostPoints; ++k) {
-          (*field)[i][j - 1 - k] = neumann(valueSouth, (*field)[i][j + 1 + k], spacing);
+          field[i, j - 1 - k] = neumann(valueSouth, field[i, j + 1 + k], spacing);
         }   
       }
     });
@@ -99,7 +98,6 @@ public:
   double neumann(double phiBC, double phiInternal, double spacing) { return spacing * phiBC + phiInternal; }
 
 private:
-  std::shared_ptr<FieldType> _u, _v, _p;
   const FieldType &_x, &_y;
   MeshLooper &_looper;
   const nlohmann::json &_bcParameters;
