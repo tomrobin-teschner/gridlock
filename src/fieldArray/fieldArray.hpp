@@ -23,6 +23,10 @@ public:
   double& operator[](int i);
   const double& operator[](int i) const;
 
+  // access the Eigen::VectorXd data array
+  FieldArrayType& getData();
+  const FieldArrayType& getData() const;
+
 private:
   int map2Dto1D(int i, int j) const;
 

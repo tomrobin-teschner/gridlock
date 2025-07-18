@@ -2,6 +2,7 @@
 
 FieldArray::FieldArray(int numX, int numY) : _numX(numX), _numY(numY) {
   _data.resize(_numX * _numY);
+  _data.setZero();
 }
 
 FieldArray FieldArray::operator=(const FieldArray &other) {
@@ -32,4 +33,12 @@ const double& FieldArray::operator[](int i) const {
 int FieldArray::map2Dto1D(int i, int j) const {
   return j * _numX + i;
 };
+
+FieldArray::FieldArrayType& FieldArray::getData() {
+  return _data;
+}
+
+const FieldArray::FieldArrayType& FieldArray::getData() const {
+  return _data;
+}
 

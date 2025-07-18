@@ -28,8 +28,8 @@ void UI::createSkeleton() {
   mvprintw(8, 15, "CFL");
   mvprintw(8, 30, "dt (s)");
   mvprintw(8, 45, "Total time (s)");
-  mvprintw(8, 60, "Elapsed (s)");
-  mvprintw(8, 75, "Remaining (s)");
+  mvprintw(8, 60, "Elapsed");
+  mvprintw(8, 75, "Remaining");
 
   // picard iteration information
   mvprintw(11, 0, "Picard loop");

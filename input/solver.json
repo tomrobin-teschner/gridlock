@@ -2,7 +2,7 @@
   "meshFile": "input/mesh/channel.json",
   "boundaryConditionFile": "input/boundaryConditions/channel.json",
   "fluid": {
-    "nu": 1e-3
+    "nu": 1e-2
   },
   "time": {
     "timeSteps": 500,

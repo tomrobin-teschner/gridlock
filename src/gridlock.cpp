@@ -19,6 +19,7 @@
 #include "src/infrastructure/utilities/data.hpp"
 #include "src/postProcessing/postProcessing.hpp"
 #include "src/fieldArray/fieldArray.hpp"
+#include "src/residuals/residuals.hpp"
 
 #include "Eigen/Eigen"
 #include "nlohmann/json.hpp"
@@ -66,8 +67,6 @@ int main(int argv, char* argc[]) {
 
   // residual and convergence checking
   int uIter = 0; int vIter = 0; int pIter = 0;
-  double resU = 1.0; double resV = 1.0; double resP = 1.0;
-  double resUNorm = 1.0; double resVNorm = 1.0; double resPNorm = 1.0;
   double epsU = solverParameters["convergence"]["u"];
   double epsV = solverParameters["convergence"]["v"];
   double epsP = solverParameters["convergence"]["p"];
@@ -77,8 +76,6 @@ int main(int argv, char* argc[]) {
   double picardToleranceU = solverParameters["linearisation"]["tolerance"]["u"];
   double picardToleranceV = solverParameters["linearisation"]["tolerance"]["v"];
   double picardToleranceP = solverParameters["linearisation"]["tolerance"]["p"];
-  double resUPicard = 0.0; double resVPicard = 0.0; double resPPicard = 0.0;
-  double resUPicardNorm = 1.0; double resVPicardNorm = 1.0; double resPPicardNorm = 1.0;
 
   // initialise UI
   UI ui(timeSteps, maxPicardIterations);
@@ -127,31 +124,7 @@ int main(int argv, char* argc[]) {
   FieldArray uPicardOld(totalSizeX, totalSizeY);
   FieldArray vPicardOld(totalSizeX, totalSizeY);
   FieldArray pPicardOld(totalSizeX, totalSizeY);
-
-  // auto u = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
-  // auto v = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
-  // auto p = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
-
-  // auto uOld = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
-  // auto vOld = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
-  // auto pOld = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
-
-  // auto uPicardOld = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
-  // auto vPicardOld = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
-  // auto pPicardOld = std::make_shared<std::vector<std::vector<double>>>(totalSizeX, std::vector<double>(totalSizeY));
-
-  // Initial conditions
-  looper.loopAll([&u, &v, &p](int i, int j) {
-    u[i, j] = 0.0; v[i, j] = 0.0; p[i, j] = 0.0;
-    // (*u)[i][j] = 0.0; (*v)[i][j] = 0.0; (*p)[i][j] = 0.0;
-  });
-
-  // Instantiate boundary condition class
-  BoundaryConditions bc(x, y, looper, bcParameters);
-  bc.applyBCs("u", u);
-  bc.applyBCs("v", v);
-  bc.applyBCs("p", p);
-
+  
   // create post processing object
   auto outputFileName = solverParameters["output"]["filename"];
   PostProcessing output(outputFileName, numX, numY, numGhostPoints, x, y);
@@ -159,17 +132,21 @@ int main(int argv, char* argc[]) {
   output.registerField("v", &v);
   output.registerField("p", &p);
 
-  // create residual file for plotting later
-  std::ofstream residualsFile;
-  residualsFile.open("output/residual.csv");
-  assert(residualsFile.is_open() && "Could not open residual file!");
-  residualsFile << "time,u,v,p" << std::endl;
+  Residuals outerResiduals(&u, &v, &p, looper, true);
+  Residuals picardResiduals(&u, &v, &p, looper);
+
+  // Instantiate boundary condition class
+  BoundaryConditions bc(x, y, looper, bcParameters);
+  bc.applyBCs("u", u);
+  bc.applyBCs("v", v);
+  bc.applyBCs("p", p);
 
   // create high-resolution stop watch
   StopWatch timer(timeSteps);
-
+  
   // Create time step calculation object
   TimeStep timeStep(solverParameters, looper);
+
 
   // loop over time
   double totalTime = 0.0;
@@ -178,10 +155,12 @@ int main(int argv, char* argc[]) {
     
     // create deep copy of old solution
     uOld = u; vOld = v; pOld = p;
-    // *uOld = *u; *vOld = *v; *pOld = *p;
+
+    // initialise residuals
+    outerResiduals.init();
 
     // determine stable timestep
-    auto [dt, CFL] = timeStep.getTimeStep(u, v, dx, dy, resU, resV, resP);
+    auto dt = timeStep.getTimeStep(u, v, dx, dy);
 
     // get timings
     auto [elapsedHH, elapsedMM, elapsedSS] = timer.elapsed();
@@ -189,26 +168,20 @@ int main(int argv, char* argc[]) {
 
     // update time information of what is already available
     ui.updateTimestatistics(t + 1, CFL, dt, totalTime, elapsedHH, elapsedMM, elapsedSS,
-      remainingHH, remainingMM, remainingSS);
-
-    auto resUStart = 0.0; auto resVStart = 0.0; auto resPStart = 0.0;
-    looper.loopWithBoundaries([&](int i, int j) {
-      resUStart += std::fabs(u[i, j]);
-      resVStart += std::fabs(v[i, j]);
-      resPStart += std::fabs(p[i, j]);
-    });
+      remainingHH, remainingMM, remainingSS);    
 
     // outer (picard) loop
     for (int k = 0; k < maxPicardIterations; ++k) {
 
       // create deep copy of old solution
       uPicardOld = u; vPicardOld = v; pPicardOld = p;
-      // *uPicardOld = *u; *vPicardOld = *v; *pPicardOld = *p;
 
-      auto resUPicardStart = 0.0;
-      looper.loopWithBoundaries([&resUPicardStart, &u](int i, int j) {
-        resUPicardStart += std::fabs(u[i, j]);
-      });
+      // auto resUPicardStart = 0.0;
+      // looper.loopWithBoundaries([&resUPicardStart, &u](int i, int j) {
+      //   resUPicardStart += std::fabs(u[i, j]);
+      // });
+
+      picardResiduals.init();
 
       // solve the u-momentum equations
       Au.setZero();
@@ -311,7 +284,7 @@ int main(int argv, char* argc[]) {
 
       xu = bicgstabU.solve(bu);
       uIter = bicgstabU.iterations();
-
+      
       // update u-velocity with under-relaxation applied
       looper.loopWithBoundaries([&](int i, int j) {
         auto idx = i - numGhostPoints;
@@ -576,71 +549,23 @@ int main(int argv, char* argc[]) {
       bc.applyBCs("u", u);
       bc.applyBCs("v", v);
       
-      // compute u-momentum picard residuals
-      auto resUPicardEnd = 0.0;
-      looper.loopWithBoundaries([&](int i, int j) {
-        resUPicardEnd += std::fabs(u[i, j]);
-      });
+      // update residual
+      auto [uPicardResValue, vPicardResValue, pPicardResValue] = picardResiduals.getResidual(k);
       
-      resUPicard = std::fabs(resUPicardStart - resUPicardEnd);
-      if (k == 0) if (resUPicard > 0.0) resUPicardNorm = resUPicard;
-      resUPicard /= resUPicardNorm;
-      
-      // compute v-momentum picard residuals
-      auto resVPicardEnd = 0.0;
-      looper.loopWithBoundaries([&](int i, int j) {
-        resVPicardEnd += std::fabs(v[i, j]);
-      });
-      
-      resVPicard = std::fabs(resVPicardStart - resVPicardEnd);
-      if (k == 0) if (resVPicard > 0.0) resVPicardNorm = resVPicard;
-      resVPicard /= resVPicardNorm;
-      
-      // compute pressure picard residuals
-      auto resPPicardEnd = 0.0;
-      looper.loopWithBoundaries([&](int i, int j) {
-        resPPicardEnd += std::fabs(p[i, j]);
-      });
-
-      resPPicard = std::fabs(resPPicardStart - resPPicardEnd);
-      if (k == 0) if (resPPicard > 0.0) resPPicardNorm = resPPicard;
-      resPPicard /= resPPicardNorm;
-
       // output picard iteration statistics
-      ui.updatePicardIteration(k + 1, resUPicard, resVPicard, resPPicard, uIter, vIter, pIter);
+      ui.updatePicardIteration(k + 1, uPicardResValue, vPicardResValue, pPicardResValue, uIter, vIter, pIter);
 
       // break out of picard iterations if linearisation loop has converged
-      if (resUPicard < picardToleranceU && resVPicard < picardToleranceV) break;
+      if (uPicardResValue < picardToleranceU && vPicardResValue < picardToleranceV) break;
     } // end outer picard loop
 
-    auto resUEnd = 0.0;
-    auto resVEnd = 0.0;
-    auto resPEnd = 0.0;
-    looper.loopWithBoundaries([&](int i, int j) {
-      resUEnd += std::fabs(u[i, j]);
-      resVEnd += std::fabs(v[i, j]);
-      resPEnd += std::fabs(p[i, j]);
-    });
-
-    resU = std::fabs(resUStart - resUEnd);
-    resV = std::fabs(resVStart - resVEnd);
-    resP = std::fabs(resPStart - resPEnd);
-    if (t == 0) if (resU > 0.0) resUNorm = resU;
-    if (t == 0) if (resV > 0.0) resVNorm = resV;
-    if (t == 0) if (resP > 0.0) resPNorm = resP;
-    resU /= resUNorm;
-    resV /= resVNorm;
-    resP /= resPNorm;
+    auto [uResidualValue, vResidualValue, pResidualValue] = outerResiduals.getResidual(t);
 
     if (outputFrequency != -1 && (t + 1) % outputFrequency == 0) 
       output.write(t + 1);
 
     // determine total time at the end of time step
     totalTime = totalTime + dt;
-
-    // write residuals to file
-    residualsFile << std::fixed << t + 1 << ",";
-    residualsFile << std::scientific << std::setprecision(5) << resU << "," << resV << "," << resP << std::endl;
     
     // check divergence of velocity field
     double divU = 0.0;
@@ -651,17 +576,14 @@ int main(int argv, char* argc[]) {
     });
 
     // update residuals information
-    ui.updateIteration(resU, resV, resP, divU);
+    ui.updateIteration(uResidualValue, vResidualValue, pResidualValue, divU);
     
     // check convergence
-    if (resU < epsU && resV < epsV && resP < epsP) {
+    if (uResidualValue < epsU && vResidualValue < epsV && pResidualValue < epsP) {
       ui.draw(17, 0, "Solution converged. Press any key to continue!");
       break;
     }
   }
-
-  // close residual file
-  residualsFile.close();
 
   // if (parameters["output"]["createRestartFile"] == true) {
   //   // open file in binary mode
@@ -687,7 +609,8 @@ int main(int argv, char* argc[]) {
   output.write();
 
   // draw end message if simulation has not converged
-  if (resU > epsU || resV > epsV || resP > epsP)
+  auto [uResidualValue, vResidualValue, pResidualValue] = picardResiduals.getResidual(t);
+  if (uResidualValue > epsU || vResidualValue > epsV || pResidualValue > epsP)
     ui.draw(17, 0, "Simulation finished but did not converge. Press any key to continue!");
   ui.block();
 
