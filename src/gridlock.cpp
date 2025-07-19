@@ -11,7 +11,7 @@
 #include <sstream>
 
 #include "src/meshLooper/meshLooper.hpp"
-#include "src/boundaryConditions.hpp"
+#include "src/boundaryConditions/boundaryConditions.hpp"
 #include "src/timeStep/timeStep.hpp"
 #include "src/infrastructure/parameterFile/parameterFile.hpp"
 #include "src/infrastructure/ui/ui.hpp"
@@ -20,6 +20,7 @@
 #include "src/postProcessing/postProcessing.hpp"
 #include "src/fieldArray/fieldArray.hpp"
 #include "src/residuals/residuals.hpp"
+#include "src/linearSolver/linearSolverEigen.hpp"
 
 #include "Eigen/Eigen"
 #include "nlohmann/json.hpp"
@@ -29,8 +30,8 @@ auto field = [](int numX, int numY) {
   return FieldType(numX, std::vector<double>(numY));
 };
 
-auto map2Dto1D = [](int i, int j, int numX, int numY) { return j * numX + i; };
-auto map1Dto2D = [](int index, int numX, int numY) { return std::make_tuple(index % numX, index / numX); };
+// auto map2Dto1D = [](int i, int j, int numX, int numY) { return j * numX + i; };
+// auto map1Dto2D = [](int index, int numX, int numY) { return std::make_tuple(index % numX, index / numX); };
 
 int main(int argv, char* argc[]) {
 
@@ -82,20 +83,18 @@ int main(int argv, char* argc[]) {
   ui.createSkeleton();
 
   // input for the linear solver
-  Eigen::VectorXd bp((numX) * (numY));
-  Eigen::VectorXd xp((numX) * (numY));
-  Eigen::SparseMatrix<double> Ap((numX) * (numY), (numX) * (numY));
-  double alphaP = solverParameters["linearSolver"]["p"]["underRelaxation"];
+  LinearSolverEigen<Eigen::SparseMatrix<double>, Eigen::VectorXd,
+  Eigen::BiCGSTAB<Eigen::SparseMatrix<double>, Eigen::IncompleteLUT<double>>> uSolver(numX, numY);
   
-  Eigen::VectorXd bu((numX) * (numY));
-  Eigen::VectorXd xu((numX) * (numY));
-  Eigen::SparseMatrix<double> Au((numX) * (numY), (numX) * (numY));
+  LinearSolverEigen<Eigen::SparseMatrix<double>, Eigen::VectorXd,
+  Eigen::BiCGSTAB<Eigen::SparseMatrix<double>, Eigen::IncompleteLUT<double>>> vSolver(numX, numY);
+  
+  LinearSolverEigen<Eigen::SparseMatrix<double>, Eigen::VectorXd,
+  Eigen::BiCGSTAB<Eigen::SparseMatrix<double>, Eigen::IncompleteLUT<double>>> pSolver(numX, numY);
+  
   double alphaU = solverParameters["linearSolver"]["u"]["underRelaxation"];
-  
-  Eigen::VectorXd bv((numX) * (numY));
-  Eigen::VectorXd xv((numX) * (numY));
-  Eigen::SparseMatrix<double> Av((numX) * (numY), (numX) * (numY));
   double alphaV = solverParameters["linearSolver"]["v"]["underRelaxation"];
+  double alphaP = solverParameters["linearSolver"]["p"]["underRelaxation"];
 
   // physical properties
   double nu = solverParameters["fluid"]["nu"];
@@ -137,9 +136,9 @@ int main(int argv, char* argc[]) {
 
   // Instantiate boundary condition class
   BoundaryConditions bc(x, y, looper, bcParameters);
-  bc.applyBCs("u", u);
-  bc.applyBCs("v", v);
-  bc.applyBCs("p", p);
+  bc.updateGhostPoints("u", u);
+  bc.updateGhostPoints("v", v);
+  bc.updateGhostPoints("p", p);
 
   // create high-resolution stop watch
   StopWatch timer(timeSteps);
@@ -176,26 +175,21 @@ int main(int argv, char* argc[]) {
       // create deep copy of old solution
       uPicardOld = u; vPicardOld = v; pPicardOld = p;
 
-      // auto resUPicardStart = 0.0;
-      // looper.loopWithBoundaries([&resUPicardStart, &u](int i, int j) {
-      //   resUPicardStart += std::fabs(u[i, j]);
-      // });
-
       picardResiduals.init();
-
+    
       // solve the u-momentum equations
-      Au.setZero();
+      uSolver.setZero();
       looper.loopWithBoundaries([&](int i, int j) {
         // create zero-based inmdices for i and j direction
         auto idx = i - numGhostPoints;
         auto jdx = j - numGhostPoints;
 
         // map 2D indices to 1D indices. Subtract 2 from numX|Y to ignore boundary points
-        auto ic  = map2Dto1D(idx, jdx, numX, numY);
-        auto ip1 = map2Dto1D(idx + 1, jdx, numX, numY);
-        auto im1 = map2Dto1D(idx - 1, jdx, numX, numY);
-        auto jp1 = map2Dto1D(idx, jdx + 1, numX, numY);
-        auto jm1 = map2Dto1D(idx, jdx - 1, numX, numY);
+        auto ic  = looper.map2Dto1D(idx, jdx);
+        auto ip1 = looper.map2Dto1D(idx + 1, jdx);
+        auto im1 = looper.map2Dto1D(idx - 1, jdx);
+        auto jp1 = looper.map2Dto1D(idx, jdx + 1);
+        auto jm1 = looper.map2Dto1D(idx, jdx - 1);
         
         // compute coefficients for matrix
         auto umax = std::max(uPicardOld[i, j], 0.0) / dx;
@@ -212,21 +206,21 @@ int main(int argv, char* argc[]) {
         auto aS = - vmax - nudy2; 
 
         // Construct coefficient matrix
-        Au.coeffRef(ic, ic) = aP;
+        uSolver.setMatrixAt(ic, ic, aP);
 
         // set up right-hand side
-        bu(ic) = uOld[i, j] / dt;
+        uSolver.setRHSAt(ic, uOld[i, j] / dt);
 
         // west
         if (idx == 0) {
           auto westBCType = bcParameters["boundaries"]["west"]["u"][0];
           auto westBCValue = bcParameters["boundaries"]["west"]["u"][1];
           if (westBCType == "dirichlet") {
-            Au.coeffRef(ic, ip1) = aE - aW;
-            bu(ic) += 2.0 * westBCValue * umax + 2.0 * westBCValue * nudx2;
+            uSolver.setMatrixAt(ic, ip1, aE - aW);
+            uSolver.addRHSAt(ic, 2.0 * westBCValue * umax + 2.0 * westBCValue * nudx2);
           } else if (westBCType == "neumann") {
-            Au.coeffRef(ic, ip1) = aE + aW;
-            bu(ic) += -2.0 * westBCValue * umax * dx - 2.0 * nu * westBCValue / dx;
+            uSolver.setMatrixAt(ic, ip1, aE + aW);
+            uSolver.addRHSAt(ic, -2.0 * westBCValue * umax * dx - 2.0 * nu * westBCValue / dx);
           }
 
         // east
@@ -234,16 +228,16 @@ int main(int argv, char* argc[]) {
           auto eastBCType = bcParameters["boundaries"]["east"]["u"][0];
           auto eastBCValue = bcParameters["boundaries"]["east"]["u"][1];
           if (eastBCType == "dirichlet") {
-            Au.coeffRef(ic, im1) = aW - aE;
-            bu(ic) += -2.0 * eastBCValue * umin + 2.0 * eastBCValue * nudx2;
+            uSolver.setMatrixAt(ic, im1, aW - aE);
+            uSolver.addRHSAt(ic, -2.0 * eastBCValue * umin + 2.0 * eastBCValue * nudx2);
           } else if (eastBCType == "neumann") {
-            Au.coeffRef(ic, im1) = aW + aE;
-            bu(ic) += - 2.0 * eastBCValue * umin * dx+ 2.0 * nu * eastBCValue / dx;
+            uSolver.setMatrixAt(ic, im1, aW + aE);
+            uSolver.addRHSAt(ic, - 2.0 * eastBCValue * umin * dx+ 2.0 * nu * eastBCValue / dx);
           }
             
         } else {
-          Au.coeffRef(ic, ip1) = aE;
-          Au.coeffRef(ic, im1) = aW;
+          uSolver.setMatrixAt(ic, ip1, aE);
+          uSolver.setMatrixAt(ic, im1, aW);
         }
 
         // south
@@ -251,11 +245,11 @@ int main(int argv, char* argc[]) {
           auto southBCType = bcParameters["boundaries"]["south"]["u"][0];
           auto southBCValue = bcParameters["boundaries"]["south"]["u"][1];
           if (southBCType == "dirichlet") {
-            Au.coeffRef(ic, jp1) = aN - aS;
-            bu(ic) += 2.0 * southBCValue * vmax + 2.0 * southBCValue * nudy2;
+            uSolver.setMatrixAt(ic, jp1, aN - aS);
+            uSolver.addRHSAt(ic, 2.0 * southBCValue * vmax + 2.0 * southBCValue * nudy2);
           } else if (southBCType == "neumann") {
-            Au.coeffRef(ic, jp1) = aN + aS;
-            bu(ic) += -2.0 * southBCValue * vmax * dy- 2.0 * nu * southBCValue / dy;
+            uSolver.setMatrixAt(ic, jp1, aN + aS);
+            uSolver.addRHSAt(ic, -2.0 * southBCValue * vmax * dy- 2.0 * nu * southBCValue / dy);
           }
         
         // north
@@ -263,56 +257,46 @@ int main(int argv, char* argc[]) {
           auto northBCType = bcParameters["boundaries"]["north"]["u"][0];
           auto northBCValue = bcParameters["boundaries"]["north"]["u"][1];
           if (northBCType == "dirichlet") {
-            Au.coeffRef(ic, jm1) = aS - aN;
-            bu(ic) += -2.0 * northBCValue * vmin + 2.0 * northBCValue * nudy2;
+            uSolver.setMatrixAt(ic, jm1, aS - aN);
+            uSolver.addRHSAt(ic, -2.0 * northBCValue * vmin + 2.0 * northBCValue * nudy2);
           } else if (northBCType == "neumann") {
-            Au.coeffRef(ic, jm1) = aS + aN;
-            bu(ic) += - 2.0 * northBCValue * vmin * dy + 2.0 * nu * northBCValue / dy;
+            uSolver.setMatrixAt(ic, jm1, aS + aN);
+            uSolver.addRHSAt(ic, - 2.0 * northBCValue * vmin * dy + 2.0 * nu * northBCValue / dy);
           }
           
         } else {
-          Au.coeffRef(ic, jp1) = aN;
-          Au.coeffRef(ic, jm1) = aS;
+          uSolver.setMatrixAt(ic, jp1, aN);
+          uSolver.setMatrixAt(ic, jm1, aS);
         }
       });
 
       // solve pressure poisson solver with the preconditioned Conjugate Gradient method
-      Eigen::BiCGSTAB<Eigen::SparseMatrix<double>, Eigen::IncompleteLUT<double>> bicgstabU;
-      bicgstabU.compute(Au);
-      bicgstabU.setMaxIterations(solverParameters["linearSolver"]["u"]["maxIterations"]);
-      bicgstabU.setTolerance(solverParameters["linearSolver"]["u"]["tolerance"]);
+      auto [uIter, xu] = uSolver.solve(solverParameters["linearSolver"]["u"]["maxIterations"], 
+        solverParameters["linearSolver"]["u"]["tolerance"]);
 
-      xu = bicgstabU.solve(bu);
-      uIter = bicgstabU.iterations();
-      
       // update u-velocity with under-relaxation applied
       looper.loopWithBoundaries([&](int i, int j) {
         auto idx = i - numGhostPoints;
         auto jdx = j - numGhostPoints;
-        u[i, j] = alphaU * xu(map2Dto1D(idx, jdx, numX, numY)) + (1.0 - alphaU) * uPicardOld[i, j];
+        u[i, j] = alphaU * xu(looper.map2Dto1D(idx, jdx)) + (1.0 - alphaU) * uPicardOld[i, j];
       });
       
       // ensure ghost cells receive most up to date values
-      bc.applyBCs("u", u);
-
-      auto resVPicardStart = 0.0;
-      looper.loopWithBoundaries([&](int i, int j) {
-        resVPicardStart += std::fabs(v[i, j]);
-      });
+      bc.updateGhostPoints("u", u);
 
       // solve the v-momentum equations
-      Av.setZero();
+      vSolver.setZero();
       looper.loopWithBoundaries([&](int i, int j) {
         // create zero-based inmdices for i and j direction
         auto idx = i - numGhostPoints;
         auto jdx = j - numGhostPoints;
 
         // map 2D indices to 1D indices. Subtract 2 from numX|Y to ignore boundary points
-        auto ic  = map2Dto1D(idx, jdx, numX, numY);
-        auto ip1 = map2Dto1D(idx + 1, jdx, numX, numY);
-        auto im1 = map2Dto1D(idx - 1, jdx, numX, numY);
-        auto jp1 = map2Dto1D(idx, jdx + 1, numX, numY);
-        auto jm1 = map2Dto1D(idx, jdx - 1, numX, numY);
+        auto ic  = looper.map2Dto1D(idx, jdx);
+        auto ip1 = looper.map2Dto1D(idx + 1, jdx);
+        auto im1 = looper.map2Dto1D(idx - 1, jdx);
+        auto jp1 = looper.map2Dto1D(idx, jdx + 1);
+        auto jm1 = looper.map2Dto1D(idx, jdx - 1);
 
         // compute coefficients for matrix
         auto umax = std::max(uPicardOld[i, j], 0.0) / dx;
@@ -329,21 +313,21 @@ int main(int argv, char* argc[]) {
         auto aS = - vmax - nudy2; 
 
         // Construct coefficient matrix
-        Av.coeffRef(ic, ic) = aP;
+        vSolver.setMatrixAt(ic, ic, aP);
 
         // set up right-hand side
-        bv(ic) = vOld[i, j] / dt;
+        vSolver.setRHSAt(ic, vOld[i, j] / dt);
 
         // west
         if (idx == 0) {
           auto westBCType = bcParameters["boundaries"]["west"]["v"][0];
           auto westBCValue = bcParameters["boundaries"]["west"]["v"][1];
           if (westBCType == "dirichlet") {
-            Av.coeffRef(ic, ip1) = aE - aW;
-            bv(ic) += 2.0 * westBCValue * umax + 2.0 * westBCValue * nudx2;
+            vSolver.setMatrixAt(ic, ip1, aE - aW);
+            vSolver.addRHSAt(ic, 2.0 * westBCValue * umax + 2.0 * westBCValue * nudx2);
           } else if (westBCType == "neumann") {
-            Av.coeffRef(ic, ip1) = aE + aW;
-            bv(ic) += -2.0 * westBCValue * umax * dx - 2.0 * nu * westBCValue / dx;
+            vSolver.setMatrixAt(ic, ip1, aE + aW);
+            vSolver.addRHSAt(ic, -2.0 * westBCValue * umax * dx - 2.0 * nu * westBCValue / dx);
           }
 
         // east
@@ -351,16 +335,16 @@ int main(int argv, char* argc[]) {
           auto eastBCType = bcParameters["boundaries"]["east"]["v"][0];
           auto eastBCValue = bcParameters["boundaries"]["east"]["v"][1];
           if (eastBCType == "dirichlet") {
-            Av.coeffRef(ic, im1) = aW - aE;
-            bv(ic) += -2.0 * eastBCValue * umin + 2.0 * eastBCValue * nudx2;
+            vSolver.setMatrixAt(ic, im1, aW - aE);
+            vSolver.addRHSAt(ic, -2.0 * eastBCValue * umin + 2.0 * eastBCValue * nudx2);
           } else if (eastBCType == "neumann") {
-            Av.coeffRef(ic, im1) = aW + aE;
-            bv(ic) += - 2.0 * eastBCValue * umin * dx + 2.0 * nu * eastBCValue / dx;
+            vSolver.setMatrixAt(ic, im1, aW + aE);
+            vSolver.addRHSAt(ic, - 2.0 * eastBCValue * umin * dx + 2.0 * nu * eastBCValue / dx);
           }
             
         } else {
-          Av.coeffRef(ic, ip1) = aE;
-          Av.coeffRef(ic, im1) = aW;
+          vSolver.setMatrixAt(ic, ip1, aE);
+          vSolver.setMatrixAt(ic, im1, aW);
         }
 
         // south
@@ -368,11 +352,11 @@ int main(int argv, char* argc[]) {
           auto southBCType = bcParameters["boundaries"]["south"]["v"][0];
           auto southBCValue = bcParameters["boundaries"]["south"]["v"][1];
           if (southBCType == "dirichlet") {
-            Av.coeffRef(ic, jp1) = aN - aS;
-            bv(ic) += 2.0 * southBCValue * vmax + 2.0 * southBCValue * nudy2;
+            vSolver.setMatrixAt(ic, jp1, aN - aS);
+            vSolver.addRHSAt(ic, 2.0 * southBCValue * vmax + 2.0 * southBCValue * nudy2);
           } else if (southBCType == "neumann") {
-            Av.coeffRef(ic, jp1) = aN + aS;
-            bv(ic) += -2.0 * southBCValue * vmax * dy - 2.0 * nu * southBCValue / dy;
+            vSolver.setMatrixAt(ic, jp1, aN + aS);
+            vSolver.addRHSAt(ic, -2.0 * southBCValue * vmax * dy - 2.0 * nu * southBCValue / dy);
           }
         
         // north
@@ -380,56 +364,46 @@ int main(int argv, char* argc[]) {
           auto northBCType = bcParameters["boundaries"]["north"]["v"][0];
           auto northBCValue = bcParameters["boundaries"]["north"]["v"][1];
           if (northBCType == "dirichlet") {
-            Av.coeffRef(ic, jm1) = aS - aN;
-            bv(ic) += -2.0 * northBCValue * vmin + 2.0 * northBCValue * nudy2;
+            vSolver.setMatrixAt(ic, jm1, aS - aN);
+            vSolver.addRHSAt(ic, -2.0 * northBCValue * vmin + 2.0 * northBCValue * nudy2);
           } else if (northBCType == "neumann") {
-            Av.coeffRef(ic, jm1) = aS + aN;
-            bv(ic) += - 2.0 * northBCValue * vmin * dy + 2.0 * nu * northBCValue / dy;
+            vSolver.setMatrixAt(ic, jm1, aS + aN);
+            vSolver.addRHSAt(ic, - 2.0 * northBCValue * vmin * dy + 2.0 * nu * northBCValue / dy);
           }
           
         } else {
-          Av.coeffRef(ic, jp1) = aN;
-          Av.coeffRef(ic, jm1) = aS;
+          vSolver.setMatrixAt(ic, jp1, aN);
+          vSolver.setMatrixAt(ic, jm1, aS);
         }
       });
 
       // solve pressure poisson solver with the preconditioned Conjugate Gradient method
-      Eigen::BiCGSTAB<Eigen::SparseMatrix<double>, Eigen::IncompleteLUT<double>> bicgstabV;
-      bicgstabV.compute(Av);
-      bicgstabV.setMaxIterations(solverParameters["linearSolver"]["v"]["maxIterations"]);
-      bicgstabV.setTolerance(solverParameters["linearSolver"]["v"]["tolerance"]);
-
-      xv = bicgstabV.solve(bv);
-      vIter = bicgstabV.iterations();
+      auto [vIter, xv] = vSolver.solve(solverParameters["linearSolver"]["v"]["maxIterations"],
+        solverParameters["linearSolver"]["v"]["tolerance"]);
 
       // update v-velocity with under-relaxation applied
       looper.loopWithBoundaries([&](int i, int j) {
         auto idx = i - numGhostPoints;
         auto jdx = j - numGhostPoints;
-        v[i, j] = alphaV * xv(map2Dto1D(idx, jdx, numX, numY)) + (1.0 - alphaV) * vPicardOld[i, j];
+        v[i, j] = alphaV * xv(looper.map2Dto1D(idx, jdx)) + (1.0 - alphaV) * vPicardOld[i, j];
       });
       
       // ensure ghost cells receive most up to date values
-      bc.applyBCs("v", v);
-
-      auto resPPicardStart = 0.0;
-      looper.loopWithBoundaries([&](int i, int j) {
-        resPPicardStart += std::fabs(p[i, j]);
-      });
+      bc.updateGhostPoints("v", v);
 
       // set up right-hand side and coefficient matrix
-      Ap.setZero();
+      pSolver.setZero();
       looper.loopWithBoundaries([&](int i, int j) {
         // create zero-based inmdices for i and j direction
         auto idx = i - numGhostPoints;
         auto jdx = j - numGhostPoints;
 
         // map 2D indices to 1D indices. Subtract 2 from numX|Y to ignore boundary points
-        auto ic  = map2Dto1D(idx, jdx, numX, numY);
-        auto ip1 = map2Dto1D(idx + 1, jdx, numX, numY);
-        auto im1 = map2Dto1D(idx - 1, jdx, numX, numY);
-        auto jp1 = map2Dto1D(idx, jdx + 1, numX, numY);
-        auto jm1 = map2Dto1D(idx, jdx - 1, numX, numY);
+        auto ic  = looper.map2Dto1D(idx, jdx);
+        auto ip1 = looper.map2Dto1D(idx + 1, jdx);
+        auto im1 = looper.map2Dto1D(idx - 1, jdx);
+        auto jp1 = looper.map2Dto1D(idx, jdx + 1);
+        auto jm1 = looper.map2Dto1D(idx, jdx - 1);
 
         // set up right-hand side
         auto dudx = (u[i + 1, j] - u[i - 1, j]) / (2.0 * dx);
@@ -447,21 +421,21 @@ int main(int argv, char* argc[]) {
         auto aS = dy2; 
 
         // Construct coefficient matrix
-        Ap.coeffRef(ic, ic) = aP;
+        pSolver.setMatrixAt(ic, ic, aP);
 
         // set up right-hand side
-        bp(ic) = div / dt;
+        pSolver.setRHSAt(ic, div / dt);
 
         // west
         if (idx == 0) {
           auto westBCType = bcParameters["boundaries"]["west"]["p"][0];
           auto westBCValue = bcParameters["boundaries"]["west"]["p"][1];
           if (westBCType == "dirichlet") {
-            Ap.coeffRef(ic, ip1) = aE - aW;
-            bp(ic) -= 2.0 * westBCValue * dx2;
+            pSolver.setMatrixAt(ic, ip1, aE - aW);
+            pSolver.addRHSAt(ic, -2.0 * westBCValue * dx2);
           } else if (westBCType == "neumann") {
-            Ap.coeffRef(ic, ip1) = aE + aW;
-            bp(ic) += 2.0 * westBCValue / dx;
+            pSolver.setMatrixAt(ic, ip1, aE + aW);
+            pSolver.addRHSAt(ic, 2.0 * westBCValue / dx);
           }
 
         // east
@@ -469,16 +443,16 @@ int main(int argv, char* argc[]) {
           auto eastBCType = bcParameters["boundaries"]["east"]["p"][0];
           auto eastBCValue = bcParameters["boundaries"]["east"]["p"][1];
           if (eastBCType == "dirichlet") {
-            Ap.coeffRef(ic, im1) = aW - aE;
-            bp(ic) -= 2.0 * eastBCValue * dx2;
+            pSolver.setMatrixAt(ic, im1, aW - aE);
+            pSolver.addRHSAt(ic, -2.0 * eastBCValue * dx2);
           } else if (eastBCType == "neumann") {
-            Ap.coeffRef(ic, im1) = aW + aE;
-            bp(ic) -= 2.0 * eastBCValue / dx;
+            pSolver.setMatrixAt(ic, im1, aW + aE);
+            pSolver.addRHSAt(ic, -2.0 * eastBCValue / dx);
           }
             
         } else {
-          Ap.coeffRef(ic, ip1) = aE;
-          Ap.coeffRef(ic, im1) = aW;
+          pSolver.setMatrixAt(ic, ip1, aE);
+          pSolver.setMatrixAt(ic, im1, aW);
         }
 
         // south
@@ -486,11 +460,11 @@ int main(int argv, char* argc[]) {
           auto southBCType = bcParameters["boundaries"]["south"]["p"][0];
           auto southBCValue = bcParameters["boundaries"]["south"]["p"][1];
           if (southBCType == "dirichlet") {
-            Ap.coeffRef(ic, jp1) = aN - aS;
-            bp(ic) -= 2.0 * southBCValue * dy2;
+            pSolver.setMatrixAt(ic, jp1, aN - aS);
+            pSolver.addRHSAt(ic, -2.0 * southBCValue * dy2);
           } else if (southBCType == "neumann") {
-            Ap.coeffRef(ic, jp1) = aN + aS;
-            bp(ic) += 2.0 * southBCValue / dy;
+            pSolver.setMatrixAt(ic, jp1, aN + aS);
+            pSolver.addRHSAt(ic, 2.0 * southBCValue / dy);
           }
         
         // north
@@ -498,47 +472,42 @@ int main(int argv, char* argc[]) {
           auto northBCType = bcParameters["boundaries"]["north"]["p"][0];
           auto northBCValue = bcParameters["boundaries"]["north"]["p"][1];
           if (northBCType == "dirichlet") {
-            Ap.coeffRef(ic, jm1) = aS - aN;
-            bp(ic) -= 2.0 * northBCValue * dy2;
+            pSolver.setMatrixAt(ic, jm1, aS - aN);
+            pSolver.addRHSAt(ic, -2.0 * northBCValue * dy2);
           } else if (northBCType == "neumann") {
-            Ap.coeffRef(ic, jm1) = aS + aN;
-            bp(ic) -= 2.0 * northBCValue / dy;
+            pSolver.setMatrixAt(ic, jm1, aS + aN);
+            pSolver.addRHSAt(ic, -2.0 * northBCValue / dy);
           }
           
         } else {
-          Ap.coeffRef(ic, jp1) = aN;
-          Ap.coeffRef(ic, jm1) = aS;
+          pSolver.setMatrixAt(ic, jp1, aN);
+          pSolver.setMatrixAt(ic, jm1, aS);
         }
 
         // check if pressure has fully neumann boundary condition, if so, compute average and subtract
         if (idx == 0 && jdx == 0) {
           if (fullyNeumann) {
-            Ap.coeffRef(ic, ic) = 1.0;
-            bp(ic) = 0.0;            
+            pSolver.setMatrixAt(ic, ic, 1.0);
+            pSolver.setRHSAt(ic, 0.0);            
           }
         }
       });
 
       // solve pressure poisson solver with the preconditioned Conjugate Gradient method
-      Eigen::BiCGSTAB<Eigen::SparseMatrix<double>, Eigen::IncompleteLUT<double>> bicgstabP;
-      bicgstabP.compute(Ap);
-      bicgstabP.setMaxIterations(solverParameters["linearSolver"]["p"]["maxIterations"]);
-      bicgstabP.setTolerance(solverParameters["linearSolver"]["p"]["tolerance"]);
-
-      xp = bicgstabP.solve(bp);
-      pIter = bicgstabP.iterations();
+      auto [pIter, xp] = pSolver.solve(solverParameters["linearSolver"]["p"]["maxIterations"],
+        solverParameters["linearSolver"]["p"]["tolerance"]);
 
       // update pressure with under-relaxation applied
       looper.loopWithBoundaries([&](int i, int j) {
         auto idx = i - numGhostPoints;
         auto jdx = j - numGhostPoints;
-        p[i, j] = alphaP * xp(map2Dto1D(idx, jdx, numX, numY)) + (1.0 - alphaP) * pPicardOld[i, j];
+        p[i, j] = alphaP * xp(looper.map2Dto1D(idx, jdx)) + (1.0 - alphaP) * pPicardOld[i, j];
       });
 
       if (fullyNeumann) p[numGhostPoints, numGhostPoints] = 0.0;
       
       // ensure ghost cells receive most up to date values
-      bc.applyBCs("p", p);
+      bc.updateGhostPoints("p", p);
       
       // update velocity
       looper.loopWithBoundaries([&](int i, int j) {
@@ -546,8 +515,8 @@ int main(int argv, char* argc[]) {
         v[i, j] = v[i, j] - dt * (p[i, j + 1] - p[i, j - 1]) / (2.0 * dy);
       });
       
-      bc.applyBCs("u", u);
-      bc.applyBCs("v", v);
+      bc.updateGhostPoints("u", u);
+      bc.updateGhostPoints("v", v);
       
       // update residual
       auto [uPicardResValue, vPicardResValue, pPicardResValue] = picardResiduals.getResidual(k);
@@ -558,6 +527,133 @@ int main(int argv, char* argc[]) {
       // break out of picard iterations if linearisation loop has converged
       if (uPicardResValue < picardToleranceU && vPicardResValue < picardToleranceV) break;
     } // end outer picard loop
+
+    // // set up right-hand side and coefficient matrix
+    // pSolver.setZero();
+    // looper.loopWithBoundaries([&](int i, int j) {
+    //   // create zero-based inmdices for i and j direction
+    //   auto idx = i - numGhostPoints;
+    //   auto jdx = j - numGhostPoints;
+
+    //   // map 2D indices to 1D indices. Subtract 2 from numX|Y to ignore boundary points
+    //   auto ic  = looper.map2Dto1D(idx, jdx);
+    //   auto ip1 = looper.map2Dto1D(idx + 1, jdx);
+    //   auto im1 = looper.map2Dto1D(idx - 1, jdx);
+    //   auto jp1 = looper.map2Dto1D(idx, jdx + 1);
+    //   auto jm1 = looper.map2Dto1D(idx, jdx - 1);
+
+    //   // set up right-hand side
+    //   auto dudx = (u[i + 1, j] - u[i - 1, j]) / (2.0 * dx);
+    //   auto dvdy = (v[i, j + 1] - v[i, j - 1]) / (2.0 * dy);
+    //   auto div = (dudx + dvdy);
+
+    //   // set up matrix coefficients
+    //   auto dx2 = 1.0 / std::pow(dx, 2);
+    //   auto dy2 = 1.0 / std::pow(dy, 2);
+
+    //   auto aP = - 2.0 * dx2 - 2.0 * dy2;
+    //   auto aE = dx2;
+    //   auto aW = dx2;
+    //   auto aN = dy2;
+    //   auto aS = dy2; 
+
+    //   // Construct coefficient matrix
+    //   pSolver.setMatrixAt(ic, ic, aP);
+
+    //   // set up right-hand side
+    //   pSolver.setRHSAt(ic, div / dt);
+
+    //   // west
+    //   if (idx == 0) {
+    //     auto westBCType = bcParameters["boundaries"]["west"]["p"][0];
+    //     auto westBCValue = bcParameters["boundaries"]["west"]["p"][1];
+    //     if (westBCType == "dirichlet") {
+    //       pSolver.setMatrixAt(ic, ip1, aE - aW);
+    //       pSolver.addRHSAt(ic, -2.0 * westBCValue * dx2);
+    //     } else if (westBCType == "neumann") {
+    //       pSolver.setMatrixAt(ic, ip1, aE + aW);
+    //       pSolver.addRHSAt(ic, 2.0 * westBCValue / dx);
+    //     }
+
+    //   // east
+    //   } else if (idx == numX - 1) {
+    //     auto eastBCType = bcParameters["boundaries"]["east"]["p"][0];
+    //     auto eastBCValue = bcParameters["boundaries"]["east"]["p"][1];
+    //     if (eastBCType == "dirichlet") {
+    //       pSolver.setMatrixAt(ic, im1, aW - aE);
+    //       pSolver.addRHSAt(ic, -2.0 * eastBCValue * dx2);
+    //     } else if (eastBCType == "neumann") {
+    //       pSolver.setMatrixAt(ic, im1, aW + aE);
+    //       pSolver.addRHSAt(ic, -2.0 * eastBCValue / dx);
+    //     }
+          
+    //   } else {
+    //     pSolver.setMatrixAt(ic, ip1, aE);
+    //     pSolver.setMatrixAt(ic, im1, aW);
+    //   }
+
+    //   // south
+    //   if (jdx == 0) {
+    //     auto southBCType = bcParameters["boundaries"]["south"]["p"][0];
+    //     auto southBCValue = bcParameters["boundaries"]["south"]["p"][1];
+    //     if (southBCType == "dirichlet") {
+    //       pSolver.setMatrixAt(ic, jp1, aN - aS);
+    //       pSolver.addRHSAt(ic, -2.0 * southBCValue * dy2);
+    //     } else if (southBCType == "neumann") {
+    //       pSolver.setMatrixAt(ic, jp1, aN + aS);
+    //       pSolver.addRHSAt(ic, 2.0 * southBCValue / dy);
+    //     }
+      
+    //   // north
+    //   } else if (jdx == numY - 1) {
+    //     auto northBCType = bcParameters["boundaries"]["north"]["p"][0];
+    //     auto northBCValue = bcParameters["boundaries"]["north"]["p"][1];
+    //     if (northBCType == "dirichlet") {
+    //       pSolver.setMatrixAt(ic, jm1, aS - aN);
+    //       pSolver.addRHSAt(ic, -2.0 * northBCValue * dy2);
+    //     } else if (northBCType == "neumann") {
+    //       pSolver.setMatrixAt(ic, jm1, aS + aN);
+    //       pSolver.addRHSAt(ic, -2.0 * northBCValue / dy);
+    //     }
+        
+    //   } else {
+    //     pSolver.setMatrixAt(ic, jp1, aN);
+    //     pSolver.setMatrixAt(ic, jm1, aS);
+    //   }
+
+    //   // check if pressure has fully neumann boundary condition, if so, compute average and subtract
+    //   if (idx == 0 && jdx == 0) {
+    //     if (fullyNeumann) {
+    //       pSolver.setMatrixAt(ic, ic, 1.0);
+    //       pSolver.setRHSAt(ic, 0.0);            
+    //     }
+    //   }
+    // });
+
+    // // solve pressure poisson solver with the preconditioned Conjugate Gradient method
+    // auto [pIter, xp] = pSolver.solve(solverParameters["linearSolver"]["p"]["maxIterations"],
+    //   solverParameters["linearSolver"]["p"]["tolerance"]);
+
+    // // update pressure with under-relaxation applied
+    // looper.loopWithBoundaries([&](int i, int j) {
+    //   auto idx = i - numGhostPoints;
+    //   auto jdx = j - numGhostPoints;
+    //   p[i, j] = alphaP * xp(looper.map2Dto1D(idx, jdx)) + (1.0 - alphaP) * pPicardOld[i, j];
+    // });
+
+    // if (fullyNeumann) p[numGhostPoints, numGhostPoints] = 0.0;
+    
+    // // ensure ghost cells receive most up to date values
+    // bc.updateGhostPoints("p", p);
+    
+    // // update velocity
+    // looper.loopWithBoundaries([&](int i, int j) {
+    //   u[i, j] = u[i, j] - dt * (p[i + 1, j] - p[i - 1, j]) / (2.0 * dx);
+    //   v[i, j] = v[i, j] - dt * (p[i, j + 1] - p[i, j - 1]) / (2.0 * dy);
+    // });
+    
+    // bc.updateGhostPoints("u", u);
+    // bc.updateGhostPoints("v", v);
 
     auto [uResidualValue, vResidualValue, pResidualValue] = outerResiduals.getResidual(t);
 

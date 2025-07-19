@@ -54,6 +54,7 @@ public:
       f(i, j);
   }
 
+  int map2Dto1D(int i, int j) { return j * _numX + i; };
   int getNumX() const { return _numX; }
   int getNumY() const { return _numY; }
   int getNumGhostPoints() const { return _numGhostPoints; }
