@@ -7,13 +7,13 @@
 #include <iostream>
 
 #include "src/fieldArray/fieldArray.hpp"
-#include "src/meshLooper/meshLooper.hpp"
+#include "src/mesh/mesh.hpp"
 
 class Residuals {
 public:
   using ResidualType = std::tuple<double, double, double>;
 public:
-  Residuals(FieldArray *u, FieldArray *v, FieldArray *p, MeshLooper &meshLooper, bool writeToFile = false);
+  Residuals(FieldArray *u, FieldArray *v, FieldArray *p, Mesh &mesh, bool writeToFile = false);
   ~Residuals();
 
 public:
@@ -26,7 +26,7 @@ private:
 
 private:
   FieldArray *_u, *_v, *_p;
-  MeshLooper _meshLooper;
+  Mesh _mesh;
   bool _writeToFile;
   double _startU = 0.0; double _startV = 0.0; double _startP = 0.0;
   double _endU = 0.0; double _endV = 0.0; double _endP = 0.0;

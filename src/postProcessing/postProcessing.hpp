@@ -11,10 +11,11 @@
 
 #include "src/infrastructure/utilities/data.hpp"
 #include "src/fieldArray/fieldArray.hpp"
+#include "src/mesh/mesh.hpp"
 
 class PostProcessing {
 public:
-  PostProcessing(std::string filename, int numX, int numY, int numGhostPoints, FieldType &x, FieldType &y);
+  PostProcessing(std::string filename, const Mesh& mesh);
   ~PostProcessing() = default;
 
 public:
@@ -23,7 +24,6 @@ public:
 
 private:
   std::string _filename;
-  int _numX, _numY, _numZ, _numGhostPoints;
-  const FieldType &_x, &_y;
+  const Mesh& _mesh;
   std::map<std::string, FieldArray *> _fields;
 };

@@ -1,7 +1,7 @@
 #include "src/residuals/residuals.hpp"
 
-Residuals::Residuals(FieldArray *u, FieldArray *v, FieldArray *p, MeshLooper &meshLooper, bool writeToFile)
-  : _u(u), _v(v), _p(p), _meshLooper(meshLooper), _writeToFile(writeToFile) {
+Residuals::Residuals(FieldArray *u, FieldArray *v, FieldArray *p, Mesh &mesh, bool writeToFile)
+  : _u(u), _v(v), _p(p), _mesh(mesh), _writeToFile(writeToFile) {
 
   if (_writeToFile) {
     _file.open("output/residual.csv");
@@ -51,7 +51,7 @@ Residuals::ResidualType Residuals::getResidual(int iteration) {
 
 double Residuals::norm(FieldArray *_data) {
   double norm = 0.0;
-  _meshLooper.loopWithBoundaries([&norm, _data](int i, int j) {
+  _mesh.loop().loopWithBoundaries([&norm, _data](int i, int j) {
     norm += std::pow((*_data)[i, j], 2);
   });
   return std::sqrt(norm);
