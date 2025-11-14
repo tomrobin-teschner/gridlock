@@ -1,14 +1,14 @@
 #include "src/postProcessing/postProcessing.hpp"
 
-PostProcessing::PostProcessing(std::string filename, const Mesh& mesh)
-  : _filename(filename), _mesh(mesh) {
+PostProcessing::PostProcessing(FieldArrayManager fields, std::string filename, const Mesh& mesh)
+  : _fields(fields), _filename(filename), _mesh(mesh) {
   // delete the output folder and then recreate it
   std::filesystem::remove_all("output/");
   std::filesystem::create_directories("output/");
 }
   
-void PostProcessing::registerField(std::string name, FieldArray *field) {
-  _fields[name] = field;
+void PostProcessing::registerFields(std::vector<int> IDs) {
+  _IDs = IDs;
 }
 
 void PostProcessing::write(int iteration) {
@@ -25,8 +25,8 @@ void PostProcessing::write(int iteration) {
   std::ofstream solution(file.str());
   solution << "TITLE = \"Solution\"\n";
   solution << "VARIABLES = \"x\", \"y\"";
-  for (const auto &fields : _fields)
-    solution << ", \"" << fields.first << "\"";
+  for (int id = 0; id < _IDs.size(); ++id)
+    solution << ", \"" << pvNames[id] << "\"";
   solution << "\n";
 
   solution << "ZONE T=\"Solution\", I=" << _mesh.numX() << ", J=" << _mesh.numY() << ", F=POINT\n";
@@ -35,8 +35,8 @@ void PostProcessing::write(int iteration) {
   _mesh.loop().loopWithBoundariesReversed([this, &solution](int i, int j) {
     solution << std::scientific << std::setprecision(6);
     solution << _mesh.x(i, j) << " " << _mesh.y(i, j);
-    for (const auto &fields : _fields)
-      solution << " " << (*fields.second)[i, j];
+    for (int id = 0; id < _IDs.size(); ++id)
+      solution << " " << _fields(id)[i, j];
     solution << "\n";
   });
 }

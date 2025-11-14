@@ -8,25 +8,27 @@
 
 #include "src/mesh/mesh.hpp"
 #include "src/infrastructure/utilities/data.hpp"
-#include "src/fieldArray/fieldArray.hpp"
+#include "src/fieldArray/fieldArrayManager.hpp"
 
 class BoundaryConditions {
 public:
-  BoundaryConditions(Mesh &mesh, const nlohmann::json &bcParameters);
+  BoundaryConditions(Mesh &mesh, FieldArrayManager fields, const nlohmann::json &bcParameters);
 
 public:
-  void updateGhostPoints(std::string name, FieldArray &field);
+  void updateGhostPoints(int ID);
+  void updateGhostPoints(std::vector<int> IDs);
 
 private:
-  void updateEastGhostPoints(std::string name, FieldArray &field);
-  void updateWestGhostPoints(std::string name, FieldArray &field);
-  void updateNorthGhostPoints(std::string name, FieldArray &field);
-  void updateSouthGhostPoints(std::string name, FieldArray &field);
+  void updateEastGhostPoints(int ID);
+  void updateWestGhostPoints(int ID);
+  void updateNorthGhostPoints(int ID);
+  void updateSouthGhostPoints(int ID);
 
   double dirichlet(double phiBC, double phiInternal);
   double neumann(double phiBC, double phiInternal, double spacing);
 
 private:
   Mesh &_mesh;
+  FieldArrayManager _fields;
   const nlohmann::json &_bcParameters;
 };

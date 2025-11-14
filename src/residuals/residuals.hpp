@@ -6,14 +6,15 @@
 #include <tuple>
 #include <iostream>
 
-#include "src/fieldArray/fieldArray.hpp"
+#include "src/infrastructure/utilities/data.hpp"
+#include "src/fieldArray/fieldArraymanager.hpp"
 #include "src/mesh/mesh.hpp"
 
 class Residuals {
 public:
-  using ResidualType = std::tuple<double, double, double>;
+  using ResidualType = std::vector<double>;
 public:
-  Residuals(FieldArray *u, FieldArray *v, FieldArray *p, Mesh &mesh, bool writeToFile = false);
+  Residuals(FieldArrayManager pv, Mesh &mesh, std::vector<int> IDs, bool writeToFile = false);
   ~Residuals();
 
 public:
@@ -21,16 +22,14 @@ public:
   ResidualType getResidual(int iteration);
 
 private:
-  double norm(FieldArray *_data);
+  double norm(int ID);
   void write(int iteration);
 
 private:
-  FieldArray *_u, *_v, *_p;
+  FieldArrayManager _pv;
   Mesh _mesh;
   bool _writeToFile;
-  double _startU = 0.0; double _startV = 0.0; double _startP = 0.0;
-  double _endU = 0.0; double _endV = 0.0; double _endP = 0.0;
-  double _normU = 1.0; double _normV = 1.0; double _normP = 1.0;
-  double _residualU = 0.0; double _residualV = 0.0; double _residualP = 0.0;
+  std::vector<double> _start, _end, _norm, _residual;
   std::ofstream _file;
+  std::vector<int> _IDs;
 };

@@ -19,16 +19,14 @@
 #include "src/infrastructure/utilities/data.hpp"
 #include "src/postProcessing/postProcessing.hpp"
 #include "src/fieldArray/fieldArray.hpp"
+#include "src/fieldArray/fieldArrayManager.hpp"
 #include "src/residuals/residuals.hpp"
 #include "src/linearSolver/linearSolverEigen.hpp"
 
+#include "src/governingEquations/pressureProjection/momentumU.hpp"
+
 #include "Eigen/Eigen"
 #include "nlohmann/json.hpp"
-
-// helper functions
-auto field = [](int numX, int numY) {
-  return FieldType(numX, std::vector<double>(numY));
-};
 
 int main(int argv, char* argc[]) {
 
@@ -47,13 +45,6 @@ int main(int argv, char* argc[]) {
   if (pWestBC == "neumann" && pEastBC == "neumann" && pSouthBC == "neumann" && pNorthBC == "neumann")
     fullyNeumann = true;
 
-  // Mesh parameters
-  // int numX = meshParameters["mesh"]["numX"];
-  // int numY = meshParameters["mesh"]["numY"];
-  // double Lx = meshParameters["mesh"]["Lx"];
-  // double Ly = meshParameters["mesh"]["Ly"];
-
-  // double dx = Lx / (numX - 1); double dy = Ly / (numY - 1);
   int numGhostPoints = 1;
   int totalSizeX = meshParameters["mesh"]["numX"] + 2 * numGhostPoints;
   int totalSizeY = meshParameters["mesh"]["numY"] + 2 * numGhostPoints;
@@ -74,14 +65,14 @@ int main(int argv, char* argc[]) {
   double picardToleranceU = solverParameters["linearisation"]["tolerance"]["u"];
   double picardToleranceV = solverParameters["linearisation"]["tolerance"]["v"];
   double picardToleranceP = solverParameters["linearisation"]["tolerance"]["p"];
-  
+
   // initialise UI
   UI ui(timeSteps, maxPicardIterations);
   ui.createSkeleton();
-  
+
   // Mesh generation
   Mesh mesh(meshParameters, numGhostPoints);
-  
+
   // input for the linear solver
   LinearSolverEigen<Eigen::SparseMatrix<double>, Eigen::VectorXd,
   Eigen::BiCGSTAB<Eigen::SparseMatrix<double>, Eigen::IncompleteLUT<double>>> uSolver(mesh.numX(), mesh.numY());
@@ -99,55 +90,44 @@ int main(int argv, char* argc[]) {
   // physical properties
   double nu = solverParameters["fluid"]["nu"];
   
-  // solution vectors
-  FieldArray u(totalSizeX, totalSizeY);
-  FieldArray v(totalSizeX, totalSizeY);
-  FieldArray p(totalSizeX, totalSizeY);
-  
-  FieldArray uOld(totalSizeX, totalSizeY);
-  FieldArray vOld(totalSizeX, totalSizeY);
-  FieldArray pOld(totalSizeX, totalSizeY);
-  
-  FieldArray uPicardOld(totalSizeX, totalSizeY);
-  FieldArray vPicardOld(totalSizeX, totalSizeY);
-  FieldArray pPicardOld(totalSizeX, totalSizeY);
-  
+  // solution vector
+  FieldArrayManager pv(totalSizeX, totalSizeY);
+
+  // Set up the governing equations
+  MomentumU momentumU(pv, solverParameters, mesh);
+
   // create post processing object
   auto outputFileName = solverParameters["output"]["filename"];
-  PostProcessing output(outputFileName, mesh);
-  output.registerField("u", &u);
-  output.registerField("v", &v);
-  output.registerField("p", &p);
-  
-  Residuals outerResiduals(&u, &v, &p, mesh, true);
-  Residuals picardResiduals(&u, &v, &p, mesh);
+  PostProcessing output(pv, outputFileName, mesh);
+  output.registerFields({PV::U, PV::V, PV::P});
+
+  Residuals outerResiduals(pv, mesh, {PV::U, PV::V, PV::P}, true);
+  Residuals picardResiduals(pv, mesh, {PV::U, PV::V, PV::P});
   
   // Instantiate boundary condition class
-  BoundaryConditions bc(mesh, bcParameters);
-  bc.updateGhostPoints("u", u);
-  bc.updateGhostPoints("v", v);
-  bc.updateGhostPoints("p", p);
-  
+  BoundaryConditions bc(mesh, pv, bcParameters);
+  bc.updateGhostPoints({PV::U, PV::V, PV::P});
+
   // create high-resolution stop watch
   StopWatch timer(timeSteps);
-  
+
   // Create time step calculation object
-  TimeStep timeStep(solverParameters, mesh);
-  
+  TimeStep timeStep(solverParameters, mesh, pv);
+
   // loop over time
   double totalTime = 0.0;
   int t = 0;
   for (t = 0; t<timeSteps; ++t) {
     
     // create deep copy of old solution
-    uOld = u; vOld = v; pOld = p;
-
+    pv.storeOldFields();
+    
     // initialise residuals
     outerResiduals.init();
-
+    
     // determine stable timestep
-    auto dt = timeStep.getTimeStep(u, v);
-
+    auto dt = timeStep.getTimeStep();
+    
     // get timings
     auto [elapsedHH, elapsedMM, elapsedSS] = timer.elapsed();
     auto [remainingHH, remainingMM, remainingSS] = timer.remaining(t);
@@ -160,7 +140,7 @@ int main(int argv, char* argc[]) {
     for (int k = 0; k < maxPicardIterations; ++k) {
 
       // create deep copy of old solution
-      uPicardOld = u; vPicardOld = v; pPicardOld = p;
+      pv.storePicardOldFields();
 
       picardResiduals.init();
     
@@ -171,25 +151,40 @@ int main(int argv, char* argc[]) {
         auto [idx, jdx] = mesh.loop().zeroBasedIndices(i, j);
         auto [ic, ip1, im1, jp1, jm1] = mesh.loop().getMatrixIndices(idx, jdx);
 
-        // compute coefficients for matrix
-        auto umax = std::max(uPicardOld[i, j], 0.0) / mesh.dx();
-        auto umin = std::min(uPicardOld[i, j], 0.0) / mesh.dx();
-        auto vmax = std::max(vPicardOld[i, j], 0.0) / mesh.dy();
-        auto vmin = std::min(vPicardOld[i, j], 0.0) / mesh.dy();
+        // initialise matrix coefficients
+        double aP = 0.0, aE = 0.0, aW = 0.0, aN = 0.0, aS = 0.0, b = 0.0;
+
+        // contributions due to du/dt
+        aP += (1.0 / dt);
+        b  += pv(PV::U_OLD)[i, j] / dt;
+
+        // contributions due to u*div(u)
+        auto umax = std::max(pv(PV::U_PICARD_OLD)[i, j], 0.0) / mesh.dx();
+        auto umin = std::min(pv(PV::U_PICARD_OLD)[i, j], 0.0) / mesh.dx();
+        auto vmax = std::max(pv(PV::V_PICARD_OLD)[i, j], 0.0) / mesh.dy();
+        auto vmin = std::min(pv(PV::V_PICARD_OLD)[i, j], 0.0) / mesh.dy();
+
+        aP += umax - umin + vmax - vmin;
+        aE += umin;
+        aW += - umax;
+        aN += vmin;
+        aS += - vmax;
+
+        // contributions due to nu*div(grad(u))
         auto nudx2 = nu / std::pow(mesh.dx(), 2);
         auto nudy2 = nu / std::pow(mesh.dy(), 2);
         
-        auto aP = (1.0 / dt) + umax - umin + vmax - vmin + 2.0 * nudx2 + 2.0 * nudy2;
-        auto aE = umin - nudx2;
-        auto aW = - umax - nudx2;
-        auto aN = vmin - nudy2;
-        auto aS = - vmax - nudy2; 
+        aP += 2.0 * nudx2 + 2.0 * nudy2;
+        aE -= nudx2;
+        aW -= nudx2;
+        aN -= nudy2;
+        aS -= nudy2;
 
         // Construct coefficient matrix
         uSolver.setMatrixAt(ic, ic, aP);
 
         // set up right-hand side
-        uSolver.setRHSAt(ic, uOld[i, j] / dt);
+        uSolver.setRHSAt(ic, b);
 
         // west
         if (idx == 0) {
@@ -258,11 +253,11 @@ int main(int argv, char* argc[]) {
       mesh.loop().loopWithBoundaries([&](int i, int j) {
         auto idx = i - numGhostPoints;
         auto jdx = j - numGhostPoints;
-        u[i, j] = alphaU * xu(mesh.loop().map2Dto1D(idx, jdx)) + (1.0 - alphaU) * uPicardOld[i, j];
+        pv(PV::U)[i, j] = alphaU * xu(mesh.loop().map2Dto1D(idx, jdx)) + (1.0 - alphaU) * pv(PV::U_PICARD_OLD)[i, j];
       });
       
       // ensure ghost cells receive most up to date values
-      bc.updateGhostPoints("u", u);
+      bc.updateGhostPoints(PV::U);
 
       // solve the v-momentum equations
       vSolver.setZero();
@@ -272,10 +267,10 @@ int main(int argv, char* argc[]) {
         auto [ic, ip1, im1, jp1, jm1] = mesh.loop().getMatrixIndices(idx, jdx);
 
         // compute coefficients for matrix
-        auto umax = std::max(uPicardOld[i, j], 0.0) / mesh.dx();
-        auto umin = std::min(uPicardOld[i, j], 0.0) / mesh.dx();
-        auto vmax = std::max(vPicardOld[i, j], 0.0) / mesh.dy();
-        auto vmin = std::min(vPicardOld[i, j], 0.0) / mesh.dy();
+        auto umax = std::max(pv(PV::U_PICARD_OLD)[i, j], 0.0) / mesh.dx();
+        auto umin = std::min(pv(PV::U_PICARD_OLD)[i, j], 0.0) / mesh.dx();
+        auto vmax = std::max(pv(PV::V_PICARD_OLD)[i, j], 0.0) / mesh.dy();
+        auto vmin = std::min(pv(PV::V_PICARD_OLD)[i, j], 0.0) / mesh.dy();
         auto nudx2 = nu / std::pow(mesh.dx(), 2);
         auto nudy2 = nu / std::pow(mesh.dy(), 2);
 
@@ -289,7 +284,7 @@ int main(int argv, char* argc[]) {
         vSolver.setMatrixAt(ic, ic, aP);
 
         // set up right-hand side
-        vSolver.setRHSAt(ic, vOld[i, j] / dt);
+        vSolver.setRHSAt(ic, pv(PV::V_OLD)[i, j] / dt);
 
         // west
         if (idx == 0) {
@@ -358,11 +353,11 @@ int main(int argv, char* argc[]) {
       mesh.loop().loopWithBoundaries([&](int i, int j) {
         auto idx = i - numGhostPoints;
         auto jdx = j - numGhostPoints;
-        v[i, j] = alphaV * xv(mesh.loop().map2Dto1D(idx, jdx)) + (1.0 - alphaV) * vPicardOld[i, j];
+        pv(PV::V)[i, j] = alphaV * xv(mesh.loop().map2Dto1D(idx, jdx)) + (1.0 - alphaV) * pv(PV::V_PICARD_OLD)[i, j];
       });
       
       // ensure ghost cells receive most up to date values
-      bc.updateGhostPoints("v", v);
+      bc.updateGhostPoints(PV::V);
 
       // set up right-hand side and coefficient matrix
       pSolver.setZero();
@@ -372,8 +367,8 @@ int main(int argv, char* argc[]) {
         auto [ic, ip1, im1, jp1, jm1] = mesh.loop().getMatrixIndices(idx, jdx);
 
         // set up right-hand side
-        auto dudx = (u[i + 1, j] - u[i - 1, j]) / (2.0 * mesh.dx());
-        auto dvdy = (v[i, j + 1] - v[i, j - 1]) / (2.0 * mesh.dy());
+        auto dudx = (pv(PV::U)[i + 1, j] - pv(PV::U)[i - 1, j]) / (2.0 * mesh.dx());
+        auto dvdy = (pv(PV::V)[i, j + 1] - pv(PV::V)[i, j - 1]) / (2.0 * mesh.dy());
         auto div = (dudx + dvdy);
 
         // set up matrix coefficients
@@ -467,34 +462,33 @@ int main(int argv, char* argc[]) {
       mesh.loop().loopWithBoundaries([&](int i, int j) {
         auto idx = i - numGhostPoints;
         auto jdx = j - numGhostPoints;
-        p[i, j] = alphaP * xp(mesh.loop().map2Dto1D(idx, jdx)) + (1.0 - alphaP) * pPicardOld[i, j];
+        pv(PV::P)[i, j] = alphaP * xp(mesh.loop().map2Dto1D(idx, jdx)) + (1.0 - alphaP) * pv(PV::P_PICARD_OLD)[i, j];
       });
 
-      if (fullyNeumann) p[numGhostPoints, numGhostPoints] = 0.0;
+      if (fullyNeumann) pv(PV::P)[numGhostPoints, numGhostPoints] = 0.0;
       
       // ensure ghost cells receive most up to date values
-      bc.updateGhostPoints("p", p);
+      bc.updateGhostPoints(PV::P);
       
       // update velocity
       mesh.loop().loopWithBoundaries([&](int i, int j) {
-        u[i, j] = u[i, j] - dt * (p[i + 1, j] - p[i - 1, j]) / (2.0 * mesh.dx());
-        v[i, j] = v[i, j] - dt * (p[i, j + 1] - p[i, j - 1]) / (2.0 * mesh.dy());
+        pv(PV::U)[i, j] = pv(PV::U)[i, j] - dt * (pv(PV::P)[i + 1, j] - pv(PV::P)[i - 1, j]) / (2.0 * mesh.dx());
+        pv(PV::V)[i, j] = pv(PV::V)[i, j] - dt * (pv(PV::P)[i, j + 1] - pv(PV::P)[i, j - 1]) / (2.0 * mesh.dy());
       });
       
-      bc.updateGhostPoints("u", u);
-      bc.updateGhostPoints("v", v);
+      bc.updateGhostPoints({PV::U, PV::V});
       
       // update residual
-      auto [uPicardResValue, vPicardResValue, pPicardResValue] = picardResiduals.getResidual(k);
+      auto resPicard = picardResiduals.getResidual(k);
       
       // output picard iteration statistics
-      ui.updatePicardIteration(k + 1, uPicardResValue, vPicardResValue, pPicardResValue, uIter, vIter, pIter);
+      ui.updatePicardIteration(k + 1, resPicard[PV::U], resPicard[PV::V], resPicard[PV::P], uIter, vIter, pIter);
 
       // break out of picard iterations if linearisation loop has converged
-      if (uPicardResValue < picardToleranceU && vPicardResValue < picardToleranceV) break;
+      if (resPicard[PV::U] < picardToleranceU && resPicard[PV::V] < picardToleranceV) break;
     } // end outer picard loop
 
-    auto [uResidualValue, vResidualValue, pResidualValue] = outerResiduals.getResidual(t);
+    auto res = outerResiduals.getResidual(t);
 
     if (outputFrequency != -1 && (t + 1) % outputFrequency == 0) 
       output.write(t + 1);
@@ -505,47 +499,47 @@ int main(int argv, char* argc[]) {
     // check divergence of velocity field
     double divU = 0.0;
     mesh.loop().loopInterior([&](int i, int j) { 
-      auto dudx = (u[i + 1, j] - u[i - 1, j]) / (2.0 * mesh.dx());
-      auto dvdy = (v[i, j + 1] - v[i, j - 1]) / (2.0 * mesh.dy());
+      auto dudx = (pv(PV::U)[i + 1, j] - pv(PV::U)[i - 1, j]) / (2.0 * mesh.dx());
+      auto dvdy = (pv(PV::V)[i, j + 1] - pv(PV::V)[i, j - 1]) / (2.0 * mesh.dy());
       divU = dudx + dvdy;
     });
 
     // update residuals information
-    ui.updateIteration(uResidualValue, vResidualValue, pResidualValue, divU);
+    ui.updateIteration(res[PV::U], res[PV::V], res[PV::P], divU);
     
     // check convergence
-    if (uResidualValue < epsU && vResidualValue < epsV && pResidualValue < epsP) {
+    if (res[PV::U] < epsU && res[PV::V] < epsV && res[PV::P] < epsP) {
       ui.draw(17, 0, "Solution converged. Press any key to continue!");
       break;
     }
   }
 
-  // if (parameters["output"]["createRestartFile"] == true) {
-  //   // open file in binary mode
-  //   std::ofstream restartFile("output/restart.bin", std::ios::binary);
+  // // if (parameters["output"]["createRestartFile"] == true) {
+  // //   // open file in binary mode
+  // //   std::ofstream restartFile("output/restart.bin", std::ios::binary);
 
-  //   // write mesh
-  //   restartFile.write((char*)&numX, sizeof(int));
-  //   restartFile.write((char*)&numY, sizeof(int));
-  //   restartFile.write((char*)&numGhostPoints, sizeof(int));
-  //   restartFile.write((char*)&t, sizeof(int));
-  //   for (int i = 0; i < numX + 2 * numGhostPoints; ++i) {
-  //     for (int j = 0; j < numY + 2 * numGhostPoints; ++j) {
-  //       restartFile.write((char*)&x[i][j], sizeof(double));
-  //       restartFile.write((char*)&y[i][j], sizeof(double));
-  //       restartFile.write((char*)u[i][j], sizeof(double));
-  //       restartFile.write((char*)v[i][j], sizeof(double));
-  //       restartFile.write((char*)p[i][j], sizeof(double));
-  //     }
-  //   }
-  // }
+  // //   // write mesh
+  // //   restartFile.write((char*)&numX, sizeof(int));
+  // //   restartFile.write((char*)&numY, sizeof(int));
+  // //   restartFile.write((char*)&numGhostPoints, sizeof(int));
+  // //   restartFile.write((char*)&t, sizeof(int));
+  // //   for (int i = 0; i < numX + 2 * numGhostPoints; ++i) {
+  // //     for (int j = 0; j < numY + 2 * numGhostPoints; ++j) {
+  // //       restartFile.write((char*)&x[i][j], sizeof(double));
+  // //       restartFile.write((char*)&y[i][j], sizeof(double));
+  // //       restartFile.write((char*)u[i][j], sizeof(double));
+  // //       restartFile.write((char*)v[i][j], sizeof(double));
+  // //       restartFile.write((char*)p[i][j], sizeof(double));
+  // //     }
+  // //   }
+  // // }
 
   // write output to file
   output.write();
 
   // draw end message if simulation has not converged
-  auto [uResidualValue, vResidualValue, pResidualValue] = picardResiduals.getResidual(t);
-  if (uResidualValue > epsU || vResidualValue > epsV || pResidualValue > epsP)
+  auto res = outerResiduals.getResidual(t);
+  if (res[PV::U] > epsU || res[PV::V] > epsV || res[PV::P] > epsP)
     ui.draw(17, 0, "Simulation finished but did not converge. Press any key to continue!");
   ui.block();
 

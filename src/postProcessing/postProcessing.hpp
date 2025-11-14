@@ -11,19 +11,21 @@
 
 #include "src/infrastructure/utilities/data.hpp"
 #include "src/fieldArray/fieldArray.hpp"
+#include "src/fieldArray/fieldArrayManager.hpp"
 #include "src/mesh/mesh.hpp"
 
 class PostProcessing {
 public:
-  PostProcessing(std::string filename, const Mesh& mesh);
+  PostProcessing(FieldArrayManager fields, std::string filename, const Mesh& mesh);
   ~PostProcessing() = default;
 
 public:
-  void registerField(std::string name, FieldArray *field);
+  void registerFields(std::vector<int> IDs);
   void write(int iteration = -1);
 
 private:
+  FieldArrayManager _fields;
   std::string _filename;
   const Mesh& _mesh;
-  std::map<std::string, FieldArray *> _fields;
+  std::vector<int> _IDs;
 };

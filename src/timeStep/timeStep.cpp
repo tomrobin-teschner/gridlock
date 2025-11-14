@@ -1,12 +1,13 @@
 #include "src/timeStep/timeStep.hpp"
 
-TimeStep::TimeStep(nlohmann::json parameters, const Mesh& mesh ) : _mesh(mesh), _CFL(parameters["time"]["CFL"]) { }
+TimeStep::TimeStep(nlohmann::json parameters, const Mesh& mesh, FieldArrayManager fields)
+  : _mesh(mesh), _CFL(parameters["time"]["CFL"]), _fields(fields) { }
 
-double TimeStep::getTimeStep(FieldArray &u, FieldArray &v) {
+double TimeStep::getTimeStep() {
   double dt = std::numeric_limits<double>::max();
-  _mesh.loop().loopWithBoundaries([&dt, &u, &v, this](int i, int j) {
+  _mesh.loop().loopWithBoundaries([&dt, this](int i, int j) {
     auto minSpacing = std::min(_mesh.dx(), _mesh.dy());
-    auto velocityMag = std::sqrt(u[i, j] * u[i, j] + v[i, j] * v[i, j]);
+    auto velocityMag = std::sqrt(std::pow(this->_fields(PV::U)[i, j], 2) + std::pow(this->_fields(PV::V)[i, j], 2));
     auto inviscidTimeStep = _CFL * minSpacing / velocityMag;
     if (inviscidTimeStep < dt) dt = inviscidTimeStep;
   });

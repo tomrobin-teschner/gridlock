@@ -12,7 +12,7 @@
     "alphaSER": 1.0
   },
   "linearisation": {
-    "maxPicardIterations": 1,
+    "maxPicardIterations": 5,
     "tolerance": {
       "u": 1e-3,
       "v": 1e-3,
