@@ -1,0 +1,5 @@
+[boundaries]
+east = {u = ["dirichlet", 0.0], v = ["dirichlet", 0.0], p = ["neumann", 0.0]}
+west = {u = ["dirichlet", 0.0], v = ["dirichlet", 0.0], p = ["neumann", 0.0]}
+north = {u = ["dirichlet", 0.0], v = ["dirichlet", 0.0], p = ["neumann", 0.0]}
+south = {u = ["dirichlet", 0.0], v = ["dirichlet", 0.0], p = ["neumann", 0.0]}

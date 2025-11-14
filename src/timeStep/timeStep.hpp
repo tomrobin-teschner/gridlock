@@ -5,7 +5,7 @@
 #include <cmath>
 #include <tuple>
 
-#include "nlohmann/json.hpp"
+#include "toml++/toml.hpp"
 
 #include "src/mesh/mesh.hpp"
 
@@ -14,7 +14,7 @@
 
 class TimeStep {
 public:
-  TimeStep(nlohmann::json parameters, const Mesh& mesh, FieldArrayManager fields);
+  TimeStep(toml::parse_result, const Mesh& mesh, FieldArrayManager fields);
   ~TimeStep() = default;
 
 public:

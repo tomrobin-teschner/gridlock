@@ -4,12 +4,13 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <sstream>
 
-#include "nlohmann/json.hpp"
+#include "toml++/toml.hpp"
 
 class ParameterFile {
 public:
-  using ParameterType = typename nlohmann::json;
+  using ParameterType = typename toml::parse_result;
 
 public:
   ParameterFile(std::string solverParameterFileName);

@@ -4,7 +4,7 @@
 #include <string>
 #include <map>
 
-#include "nlohmann/json.hpp"
+#include "toml++/toml.hpp"
 
 #include "src/mesh/mesh.hpp"
 #include "src/infrastructure/utilities/data.hpp"
@@ -12,7 +12,7 @@
 
 class BoundaryConditions {
 public:
-  BoundaryConditions(Mesh &mesh, FieldArrayManager fields, const nlohmann::json &bcParameters);
+  BoundaryConditions(Mesh &mesh, FieldArrayManager fields, const toml::parse_result &bcParameters);
 
 public:
   void updateGhostPoints(int ID);
@@ -30,5 +30,5 @@ private:
 private:
   Mesh &_mesh;
   FieldArrayManager _fields;
-  const nlohmann::json &_bcParameters;
+  const toml::parse_result &_bcParameters;
 };

@@ -27,44 +27,49 @@
 
 #include "Eigen/Eigen"
 #include "nlohmann/json.hpp"
+#include "toml++/toml.hpp"
 
 int main(int argv, char* argc[]) {
 
   // Read parameter files
-  ParameterFile parameterFile("input/solver.json");
+  ParameterFile parameterFile("input/solver.toml");
   auto solverParameters = parameterFile.getSolverParameters();
   auto meshParameters = parameterFile.getMeshParameters();
   auto bcParameters = parameterFile.getBoundaryConditionsParameters();
 
   // check if problem is a fully neumann boundary value problem for the pressure
-  auto pWestBC = bcParameters["boundaries"]["west"]["p"][0];
-  auto pEastBC = bcParameters["boundaries"]["east"]["p"][0];
-  auto pSouthBC = bcParameters["boundaries"]["south"]["p"][0];
-  auto pNorthBC = bcParameters["boundaries"]["north"]["p"][0];
+  std::string pWestBC = bcParameters["boundaries"]["west"]["p"][0].value_or("");
+  std::string pEastBC = bcParameters["boundaries"]["east"]["p"][0].value_or("");
+  std::string pSouthBC = bcParameters["boundaries"]["south"]["p"][0].value_or("");
+  std::string pNorthBC = bcParameters["boundaries"]["north"]["p"][0].value_or("");
+
   bool fullyNeumann = false;
   if (pWestBC == "neumann" && pEastBC == "neumann" && pSouthBC == "neumann" && pNorthBC == "neumann")
     fullyNeumann = true;
 
+    std::cout << solverParameters["config_files"]["meshFile"] << std::endl;
+  std::cout << pWestBC << " " << pEastBC << " " << pSouthBC << " " << pNorthBC << " " << fullyNeumann << std::endl;
+
   int numGhostPoints = 1;
-  int totalSizeX = meshParameters["mesh"]["numX"] + 2 * numGhostPoints;
-  int totalSizeY = meshParameters["mesh"]["numY"] + 2 * numGhostPoints;
+  int totalSizeX = meshParameters["mesh"]["numX"].value_or(0) + 2 * numGhostPoints;
+  int totalSizeY = meshParameters["mesh"]["numY"].value_or(0) + 2 * numGhostPoints;
   
   // Time stepping parameters
-  int timeSteps = solverParameters["time"]["timeSteps"];
-  double CFL = solverParameters["time"]["CFL"];
-  int outputFrequency = solverParameters["output"]["outputFrequency"];
+  int timeSteps = solverParameters["time"]["timeSteps"].value_or(0);
+  double CFL = solverParameters["time"]["CFL"].value_or(0.0);
+  int outputFrequency = solverParameters["output"]["outputFrequency"].value_or(0);
 
   // residual and convergence checking
   int uIter = 0; int vIter = 0; int pIter = 0;
-  double epsU = solverParameters["convergence"]["u"];
-  double epsV = solverParameters["convergence"]["v"];
-  double epsP = solverParameters["convergence"]["p"];
+  double epsU = solverParameters["convergence"]["u"].value_or(1e-3);
+  double epsV = solverParameters["convergence"]["v"].value_or(1e-3);
+  double epsP = solverParameters["convergence"]["p"].value_or(1e-3);
   
   // set up picard linearisation
-  int maxPicardIterations = solverParameters["linearisation"]["maxPicardIterations"];
-  double picardToleranceU = solverParameters["linearisation"]["tolerance"]["u"];
-  double picardToleranceV = solverParameters["linearisation"]["tolerance"]["v"];
-  double picardToleranceP = solverParameters["linearisation"]["tolerance"]["p"];
+  int maxPicardIterations = solverParameters["linearisation"]["maxPicardIterations"].value_or(0);
+  double picardToleranceU = solverParameters["linearisation"]["tolerance"]["u"].value_or(1e-3);
+  double picardToleranceV = solverParameters["linearisation"]["tolerance"]["v"].value_or(1e-3);
+  double picardToleranceP = solverParameters["linearisation"]["tolerance"]["p"].value_or(1e-3);
 
   // initialise UI
   UI ui(timeSteps, maxPicardIterations);
@@ -83,12 +88,12 @@ int main(int argv, char* argc[]) {
   LinearSolverEigen<Eigen::SparseMatrix<double>, Eigen::VectorXd,
   Eigen::BiCGSTAB<Eigen::SparseMatrix<double>, Eigen::IncompleteLUT<double>>> pSolver(mesh.numX(), mesh.numY());
   
-  double alphaU = solverParameters["linearSolver"]["u"]["underRelaxation"];
-  double alphaV = solverParameters["linearSolver"]["v"]["underRelaxation"];
-  double alphaP = solverParameters["linearSolver"]["p"]["underRelaxation"];
+  double alphaU = solverParameters["linearSolver"]["u"]["underRelaxation"].value_or(1.0);
+  double alphaV = solverParameters["linearSolver"]["v"]["underRelaxation"].value_or(1.0);
+  double alphaP = solverParameters["linearSolver"]["p"]["underRelaxation"].value_or(1.0);
   
   // physical properties
-  double nu = solverParameters["fluid"]["nu"];
+  double nu = solverParameters["fluid"]["nu"].value_or(1.0);
   
   // solution vector
   FieldArrayManager pv(totalSizeX, totalSizeY);
@@ -97,7 +102,7 @@ int main(int argv, char* argc[]) {
   MomentumU momentumU(pv, solverParameters, mesh);
 
   // create post processing object
-  auto outputFileName = solverParameters["output"]["filename"];
+  std::string outputFileName = solverParameters["output"]["filename"].value_or("");
   PostProcessing output(pv, outputFileName, mesh);
   output.registerFields({PV::U, PV::V, PV::P});
 
@@ -165,20 +170,14 @@ int main(int argv, char* argc[]) {
         auto vmin = std::min(pv(PV::V_PICARD_OLD)[i, j], 0.0) / mesh.dy();
 
         aP += umax - umin + vmax - vmin;
-        aE += umin;
-        aW += - umax;
-        aN += vmin;
-        aS += - vmax;
+        aE += umin; aW += - umax; aN += vmin; aS += - vmax;
 
         // contributions due to nu*div(grad(u))
         auto nudx2 = nu / std::pow(mesh.dx(), 2);
         auto nudy2 = nu / std::pow(mesh.dy(), 2);
         
         aP += 2.0 * nudx2 + 2.0 * nudy2;
-        aE -= nudx2;
-        aW -= nudx2;
-        aN -= nudy2;
-        aS -= nudy2;
+        aE -= nudx2; aW -= nudx2; aN -= nudy2; aS -= nudy2; 
 
         // Construct coefficient matrix
         uSolver.setMatrixAt(ic, ic, aP);
@@ -188,8 +187,8 @@ int main(int argv, char* argc[]) {
 
         // west
         if (idx == 0) {
-          auto westBCType = bcParameters["boundaries"]["west"]["u"][0];
-          auto westBCValue = bcParameters["boundaries"]["west"]["u"][1];
+          std::string westBCType = bcParameters["boundaries"]["west"]["u"][0].value_or("");
+          double westBCValue = bcParameters["boundaries"]["west"]["u"][1].value_or(0.0);
           if (westBCType == "dirichlet") {
             uSolver.setMatrixAt(ic, ip1, aE - aW);
             uSolver.addRHSAt(ic, 2.0 * westBCValue * umax + 2.0 * westBCValue * nudx2);
@@ -200,8 +199,8 @@ int main(int argv, char* argc[]) {
 
         // east
         } else if (idx == mesh.numX() - 1) {
-          auto eastBCType = bcParameters["boundaries"]["east"]["u"][0];
-          auto eastBCValue = bcParameters["boundaries"]["east"]["u"][1];
+          std::string eastBCType = bcParameters["boundaries"]["east"]["u"][0].value_or("");
+          double eastBCValue = bcParameters["boundaries"]["east"]["u"][1].value_or(0.0);
           if (eastBCType == "dirichlet") {
             uSolver.setMatrixAt(ic, im1, aW - aE);
             uSolver.addRHSAt(ic, -2.0 * eastBCValue * umin + 2.0 * eastBCValue * nudx2);
@@ -217,8 +216,8 @@ int main(int argv, char* argc[]) {
 
         // south
         if (jdx == 0) {
-          auto southBCType = bcParameters["boundaries"]["south"]["u"][0];
-          auto southBCValue = bcParameters["boundaries"]["south"]["u"][1];
+          std::string southBCType = bcParameters["boundaries"]["south"]["u"][0].value_or("");
+          double southBCValue = bcParameters["boundaries"]["south"]["u"][1].value_or(0.0);
           if (southBCType == "dirichlet") {
             uSolver.setMatrixAt(ic, jp1, aN - aS);
             uSolver.addRHSAt(ic, 2.0 * southBCValue * vmax + 2.0 * southBCValue * nudy2);
@@ -229,8 +228,8 @@ int main(int argv, char* argc[]) {
         
         // north
         } else if (jdx == mesh.numY() - 1) {
-          auto northBCType = bcParameters["boundaries"]["north"]["u"][0];
-          auto northBCValue = bcParameters["boundaries"]["north"]["u"][1];
+          std::string northBCType = bcParameters["boundaries"]["north"]["u"][0].value_or("");
+          double northBCValue = bcParameters["boundaries"]["north"]["u"][1].value_or(0.0);
           if (northBCType == "dirichlet") {
             uSolver.setMatrixAt(ic, jm1, aS - aN);
             uSolver.addRHSAt(ic, -2.0 * northBCValue * vmin + 2.0 * northBCValue * nudy2);
@@ -246,8 +245,8 @@ int main(int argv, char* argc[]) {
       });
 
       // solve pressure poisson solver with the preconditioned Conjugate Gradient method
-      auto [uIter, xu] = uSolver.solve(solverParameters["linearSolver"]["u"]["maxIterations"], 
-        solverParameters["linearSolver"]["u"]["tolerance"]);
+      auto [uIter, xu] = uSolver.solve(solverParameters["linearSolver"]["u"]["maxIterations"].value_or(0), 
+        solverParameters["linearSolver"]["u"]["tolerance"].value_or(1e-3));
 
       // update u-velocity with under-relaxation applied
       mesh.loop().loopWithBoundaries([&](int i, int j) {
@@ -288,8 +287,8 @@ int main(int argv, char* argc[]) {
 
         // west
         if (idx == 0) {
-          auto westBCType = bcParameters["boundaries"]["west"]["v"][0];
-          auto westBCValue = bcParameters["boundaries"]["west"]["v"][1];
+          std::string westBCType = bcParameters["boundaries"]["west"]["v"][0].value_or("");
+          double westBCValue = bcParameters["boundaries"]["west"]["v"][1].value_or(0.0);
           if (westBCType == "dirichlet") {
             vSolver.setMatrixAt(ic, ip1, aE - aW);
             vSolver.addRHSAt(ic, 2.0 * westBCValue * umax + 2.0 * westBCValue * nudx2);
@@ -300,8 +299,8 @@ int main(int argv, char* argc[]) {
 
         // east
         } else if (idx == mesh.numX() - 1) {
-          auto eastBCType = bcParameters["boundaries"]["east"]["v"][0];
-          auto eastBCValue = bcParameters["boundaries"]["east"]["v"][1];
+          std::string eastBCType = bcParameters["boundaries"]["east"]["v"][0].value_or("");
+          double eastBCValue = bcParameters["boundaries"]["east"]["v"][1].value_or(0.0);
           if (eastBCType == "dirichlet") {
             vSolver.setMatrixAt(ic, im1, aW - aE);
             vSolver.addRHSAt(ic, -2.0 * eastBCValue * umin + 2.0 * eastBCValue * nudx2);
@@ -317,8 +316,8 @@ int main(int argv, char* argc[]) {
 
         // south
         if (jdx == 0) {
-          auto southBCType = bcParameters["boundaries"]["south"]["v"][0];
-          auto southBCValue = bcParameters["boundaries"]["south"]["v"][1];
+          std::string southBCType = bcParameters["boundaries"]["south"]["v"][0].value_or("");
+          double southBCValue = bcParameters["boundaries"]["south"]["v"][1].value_or(0.0);
           if (southBCType == "dirichlet") {
             vSolver.setMatrixAt(ic, jp1, aN - aS);
             vSolver.addRHSAt(ic, 2.0 * southBCValue * vmax + 2.0 * southBCValue * nudy2);
@@ -329,8 +328,8 @@ int main(int argv, char* argc[]) {
         
         // north
         } else if (jdx == mesh.numY() - 1) {
-          auto northBCType = bcParameters["boundaries"]["north"]["v"][0];
-          auto northBCValue = bcParameters["boundaries"]["north"]["v"][1];
+          std::string northBCType = bcParameters["boundaries"]["north"]["v"][0].value_or("");
+          double northBCValue = bcParameters["boundaries"]["north"]["v"][1].value_or(0.0);
           if (northBCType == "dirichlet") {
             vSolver.setMatrixAt(ic, jm1, aS - aN);
             vSolver.addRHSAt(ic, -2.0 * northBCValue * vmin + 2.0 * northBCValue * nudy2);
@@ -346,8 +345,8 @@ int main(int argv, char* argc[]) {
       });
 
       // solve pressure poisson solver with the preconditioned Conjugate Gradient method
-      auto [vIter, xv] = vSolver.solve(solverParameters["linearSolver"]["v"]["maxIterations"],
-        solverParameters["linearSolver"]["v"]["tolerance"]);
+      auto [vIter, xv] = vSolver.solve(solverParameters["linearSolver"]["v"]["maxIterations"].value_or(0),
+        solverParameters["linearSolver"]["v"]["tolerance"].value_or(1e-3));
 
       // update v-velocity with under-relaxation applied
       mesh.loop().loopWithBoundaries([&](int i, int j) {
@@ -389,8 +388,8 @@ int main(int argv, char* argc[]) {
 
         // west
         if (idx == 0) {
-          auto westBCType = bcParameters["boundaries"]["west"]["p"][0];
-          auto westBCValue = bcParameters["boundaries"]["west"]["p"][1];
+          std::string westBCType = bcParameters["boundaries"]["west"]["p"][0].value_or("");
+          double westBCValue = bcParameters["boundaries"]["west"]["p"][1].value_or(0.0);
           if (westBCType == "dirichlet") {
             pSolver.setMatrixAt(ic, ip1, aE - aW);
             pSolver.addRHSAt(ic, -2.0 * westBCValue * dx2);
@@ -401,8 +400,8 @@ int main(int argv, char* argc[]) {
 
         // east
         } else if (idx == mesh.numX() - 1) {
-          auto eastBCType = bcParameters["boundaries"]["east"]["p"][0];
-          auto eastBCValue = bcParameters["boundaries"]["east"]["p"][1];
+          std::string eastBCType = bcParameters["boundaries"]["east"]["p"][0].value_or("");
+          double eastBCValue = bcParameters["boundaries"]["east"]["p"][1].value_or(0.0);
           if (eastBCType == "dirichlet") {
             pSolver.setMatrixAt(ic, im1, aW - aE);
             pSolver.addRHSAt(ic, -2.0 * eastBCValue * dx2);
@@ -418,8 +417,8 @@ int main(int argv, char* argc[]) {
 
         // south
         if (jdx == 0) {
-          auto southBCType = bcParameters["boundaries"]["south"]["p"][0];
-          auto southBCValue = bcParameters["boundaries"]["south"]["p"][1];
+          std::string southBCType = bcParameters["boundaries"]["south"]["p"][0].value_or("");
+          double southBCValue = bcParameters["boundaries"]["south"]["p"][1].value_or(0.0);
           if (southBCType == "dirichlet") {
             pSolver.setMatrixAt(ic, jp1, aN - aS);
             pSolver.addRHSAt(ic, -2.0 * southBCValue * dy2);
@@ -430,8 +429,8 @@ int main(int argv, char* argc[]) {
         
         // north
         } else if (jdx == mesh.numY() - 1) {
-          auto northBCType = bcParameters["boundaries"]["north"]["p"][0];
-          auto northBCValue = bcParameters["boundaries"]["north"]["p"][1];
+          std::string northBCType = bcParameters["boundaries"]["north"]["p"][0].value_or("");
+          double northBCValue = bcParameters["boundaries"]["north"]["p"][1].value_or(0.0);
           if (northBCType == "dirichlet") {
             pSolver.setMatrixAt(ic, jm1, aS - aN);
             pSolver.addRHSAt(ic, -2.0 * northBCValue * dy2);
@@ -455,8 +454,8 @@ int main(int argv, char* argc[]) {
       });
 
       // solve pressure poisson solver with the preconditioned Conjugate Gradient method
-      auto [pIter, xp] = pSolver.solve(solverParameters["linearSolver"]["p"]["maxIterations"],
-        solverParameters["linearSolver"]["p"]["tolerance"]);
+      auto [pIter, xp] = pSolver.solve(solverParameters["linearSolver"]["p"]["maxIterations"].value_or(0),
+        solverParameters["linearSolver"]["p"]["tolerance"].value_or(1e-3));
 
       // update pressure with under-relaxation applied
       mesh.loop().loopWithBoundaries([&](int i, int j) {
@@ -514,25 +513,25 @@ int main(int argv, char* argc[]) {
     }
   }
 
-  // // if (parameters["output"]["createRestartFile"] == true) {
-  // //   // open file in binary mode
-  // //   std::ofstream restartFile("output/restart.bin", std::ios::binary);
+  // if (parameters["output"]["createRestartFile"] == true) {
+  //   // open file in binary mode
+  //   std::ofstream restartFile("output/restart.bin", std::ios::binary);
 
-  // //   // write mesh
-  // //   restartFile.write((char*)&numX, sizeof(int));
-  // //   restartFile.write((char*)&numY, sizeof(int));
-  // //   restartFile.write((char*)&numGhostPoints, sizeof(int));
-  // //   restartFile.write((char*)&t, sizeof(int));
-  // //   for (int i = 0; i < numX + 2 * numGhostPoints; ++i) {
-  // //     for (int j = 0; j < numY + 2 * numGhostPoints; ++j) {
-  // //       restartFile.write((char*)&x[i][j], sizeof(double));
-  // //       restartFile.write((char*)&y[i][j], sizeof(double));
-  // //       restartFile.write((char*)u[i][j], sizeof(double));
-  // //       restartFile.write((char*)v[i][j], sizeof(double));
-  // //       restartFile.write((char*)p[i][j], sizeof(double));
-  // //     }
-  // //   }
-  // // }
+  //   // write mesh
+  //   restartFile.write((char*)&numX, sizeof(int));
+  //   restartFile.write((char*)&numY, sizeof(int));
+  //   restartFile.write((char*)&numGhostPoints, sizeof(int));
+  //   restartFile.write((char*)&t, sizeof(int));
+  //   for (int i = 0; i < numX + 2 * numGhostPoints; ++i) {
+  //     for (int j = 0; j < numY + 2 * numGhostPoints; ++j) {
+  //       restartFile.write((char*)&x[i][j], sizeof(double));
+  //       restartFile.write((char*)&y[i][j], sizeof(double));
+  //       restartFile.write((char*)u[i][j], sizeof(double));
+  //       restartFile.write((char*)v[i][j], sizeof(double));
+  //       restartFile.write((char*)p[i][j], sizeof(double));
+  //     }
+  //   }
+  // }
 
   // write output to file
   output.write();

@@ -2,14 +2,14 @@
 
 #include <iostream>
 
-#include "nlohmann/json.hpp"
+#include "toml++/toml.hpp"
 
 #include "src/fieldArray/fieldArray.hpp"
 #include "src/meshLooper/meshLooper.hpp"
 
 class Mesh {
 public:
-  Mesh(nlohmann::json meshParameters, int numGhostPoints);
+  Mesh(toml::parse_result meshParameters, int numGhostPoints);
   ~Mesh() = default;
 
   void create();
@@ -28,7 +28,7 @@ public:
   const MeshLooper& loop() const { return _looper; }
   
 private:
-  nlohmann::json _meshParameters;
+  toml::parse_result _meshParameters;
   int _numGhostPoints;
   FieldArray _x;
   FieldArray _y;

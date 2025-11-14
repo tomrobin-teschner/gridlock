@@ -42,3 +42,9 @@ Or, if you are on Windows, use:
 ./build/Release/gridlock.exe
 ```
 
+### TODO
+
+- update writing to reflect correct paths for Ninja generator
+- Currently mixed instructions for Debug/Release
+- Add some additional information about solver and use/simple tutorial
+- update conan instructions to use C++ 23 (default detects C__14, but TOML needs at least C++17)

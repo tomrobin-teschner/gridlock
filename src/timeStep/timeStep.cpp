@@ -1,7 +1,7 @@
 #include "src/timeStep/timeStep.hpp"
 
-TimeStep::TimeStep(nlohmann::json parameters, const Mesh& mesh, FieldArrayManager fields)
-  : _mesh(mesh), _CFL(parameters["time"]["CFL"]), _fields(fields) { }
+TimeStep::TimeStep(toml::parse_result parameters, const Mesh& mesh, FieldArrayManager fields)
+  : _mesh(mesh), _CFL(parameters["time"]["CFL"].value_or(0.0)), _fields(fields) { }
 
 double TimeStep::getTimeStep() {
   double dt = std::numeric_limits<double>::max();
