@@ -1,6 +1,6 @@
 from sys import argv
 
-files = ["CMakeLists.txt", "src/infrastructure/ui/ui.cpp"]
+files = ["CMakeLists.txt", "src/infrastructure/ui/ui.cpp", "README.md"]
     
 def main():
     current_version = get_current_version()

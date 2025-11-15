@@ -1,3 +1,5 @@
+![Static Badge](https://img.shields.io/badge/version-0.11.0-red)
+
 ## Installation and running
 
 Ensure that Python and pip are installed, as well as  C++ compiler. Then, isntall the required python packages with pip:
