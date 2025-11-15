@@ -1,7 +1,7 @@
 #include "src/fieldArray/fieldArrayManager.hpp"
 
-FieldArrayManager::FieldArrayManager(int totalSizeX, int totalSizeY)
-: _totalSizeX(totalSizeX), _totalSizeY(totalSizeY) {
+FieldArrayManager::FieldArrayManager(const Mesh& mesh)
+: _totalSizeX(mesh.numX() + 2 * mesh.numGhostPoints()), _totalSizeY(mesh.numY() + 2 * mesh.numGhostPoints()) {
   _fields.emplace(PV::U, std::make_shared<FieldArray>(_totalSizeX, _totalSizeY));
   _fields.emplace(PV::V, std::make_shared<FieldArray>(_totalSizeX, _totalSizeY));
   _fields.emplace(PV::P, std::make_shared<FieldArray>(_totalSizeX, _totalSizeY));

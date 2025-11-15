@@ -6,9 +6,9 @@ target_sources(${CMAKE_PROJECT_NAME}
 
 add_subdirectory(infrastructure)
 add_subdirectory(fieldArray)
-add_subdirectory(timeStep)
+add_subdirectory(timeInfo)
 add_subdirectory(postProcessing)
 add_subdirectory(residuals)
 add_subdirectory(boundaryConditions)
 add_subdirectory(mesh)
-add_subdirectory(governingEquations)
+# add_subdirectory(governingEquations)

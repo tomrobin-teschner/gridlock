@@ -5,6 +5,7 @@
 
 #include "src/fieldArray/fieldArray.hpp"
 #include "src/infrastructure/utilities/data.hpp"
+#include "src/mesh/mesh.hpp"
 
 class FieldArrayManager {
 public:
@@ -12,7 +13,7 @@ public:
   using FieldManagerType = typename std::unordered_map<int, FieldArrayType>;
 
 public:
-  FieldArrayManager(int totalSizeX, int totalSizeY);
+  FieldArrayManager(const Mesh& mesh);
   ~FieldArrayManager() = default;
   
   const FieldArray& operator()(int ID) const;

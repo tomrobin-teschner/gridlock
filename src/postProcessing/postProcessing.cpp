@@ -1,7 +1,7 @@
 #include "src/postProcessing/postProcessing.hpp"
 
-PostProcessing::PostProcessing(FieldArrayManager fields, std::string filename, const Mesh& mesh)
-  : _fields(fields), _filename(filename), _mesh(mesh) {
+PostProcessing::PostProcessing(FieldArrayManager fields, Parameters params, const Mesh& mesh)
+  : _fields(fields), _filename(params.solver<std::string>("output", "filename")), _mesh(mesh) {
   // delete the output folder and then recreate it
   std::filesystem::remove_all("output/");
   std::filesystem::create_directories("output/");

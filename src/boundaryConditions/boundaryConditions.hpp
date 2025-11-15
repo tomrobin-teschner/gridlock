@@ -4,19 +4,19 @@
 #include <string>
 #include <map>
 
-#include "toml++/toml.hpp"
-
 #include "src/mesh/mesh.hpp"
 #include "src/infrastructure/utilities/data.hpp"
 #include "src/fieldArray/fieldArrayManager.hpp"
+#include "src/infrastructure/parameters/parameters.hpp"
 
 class BoundaryConditions {
 public:
-  BoundaryConditions(Mesh &mesh, FieldArrayManager fields, const toml::parse_result &bcParameters);
+  BoundaryConditions(Parameters params, Mesh &mesh, FieldArrayManager fields);
 
 public:
   void updateGhostPoints(int ID);
   void updateGhostPoints(std::vector<int> IDs);
+  bool fullyNeumann();
 
 private:
   void updateEastGhostPoints(int ID);
@@ -28,7 +28,7 @@ private:
   double neumann(double phiBC, double phiInternal, double spacing);
 
 private:
+Parameters _params;
   Mesh &_mesh;
   FieldArrayManager _fields;
-  const toml::parse_result &_bcParameters;
 };

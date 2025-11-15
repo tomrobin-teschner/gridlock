@@ -1,13 +1,14 @@
 #include "src/residuals/residuals.hpp"
 
-Residuals::Residuals(FieldArrayManager pv, Mesh &mesh, std::vector<int> IDs, bool writeToFile)
-  : _pv(pv), _mesh(mesh), _IDs(IDs), _writeToFile(writeToFile) {
+Residuals::Residuals(Parameters params, FieldArrayManager pv, Mesh &mesh, std::vector<int> IDs, std::string location,
+  bool writeToFile) : _pv(pv), _mesh(mesh), _IDs(IDs), _writeToFile(writeToFile) {
 
   _start.resize(IDs.size());
   _end.resize(IDs.size());
   _norm.resize(IDs.size());
   _residual.resize(IDs.size());
-
+  
+  // set up residual file writing if requested
   if (_writeToFile) {
     _file.open("output/residual.csv");
     assert(_file.is_open() && "Could not open residual file!");
@@ -17,6 +18,12 @@ Residuals::Residuals(FieldArrayManager pv, Mesh &mesh, std::vector<int> IDs, boo
       _file << "," << pvNames[id];
     _file << "\n";
   }
+
+  // store convergence thresholds for residuals
+  _tolerances.resize(_IDs.size());
+  _tolerances[PV::U] = params.solver<double>(location, "tolerance", "u");
+  _tolerances[PV::V] = params.solver<double>(location, "tolerance", "v");
+  _tolerances[PV::P] = params.solver<double>(location, "tolerance", "p");
 }
 
 Residuals::~Residuals() {

@@ -2,14 +2,13 @@
 
 #include <iostream>
 
-#include "toml++/toml.hpp"
-
+#include "src/infrastructure/parameters/parameters.hpp"
 #include "src/fieldArray/fieldArray.hpp"
 #include "src/meshLooper/meshLooper.hpp"
 
 class Mesh {
 public:
-  Mesh(toml::parse_result meshParameters, int numGhostPoints);
+  Mesh(Parameters params);
   ~Mesh() = default;
 
   void create();
@@ -28,12 +27,11 @@ public:
   const MeshLooper& loop() const { return _looper; }
   
 private:
-  toml::parse_result _meshParameters;
   int _numGhostPoints;
-  FieldArray _x;
-  FieldArray _y;
-  MeshLooper _looper;
   int _numX, _numY;
   double _lx, _ly;
   double _dx, _dy;
+  FieldArray _x;
+  FieldArray _y;
+  MeshLooper _looper;
 };

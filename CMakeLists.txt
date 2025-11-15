@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.23)
 
 project(
   gridlock
-  VERSION 0.10.0
+  VERSION 0.11.0
   LANGUAGES CXX
 )
 
@@ -15,9 +15,9 @@ find_package(Eigen3 REQUIRED)
 # Add an executable and provide the source file directly.
 add_executable(${CMAKE_PROJECT_NAME} "")
 
-# Add tomlcplusplus as a dependency
-find_package(tomlplusplus REQUIRED)
-target_link_libraries(${CMAKE_PROJECT_NAME} tomlplusplus::tomlplusplus)
+# Add toml11 as a dependency
+find_package(toml11 REQUIRED)
+target_link_libraries(${CMAKE_PROJECT_NAME} toml11::toml11)
 
 # Add eigen as a dependency
 find_package(Eigen3 REQUIRED)

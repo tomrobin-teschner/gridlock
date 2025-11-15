@@ -5,10 +5,11 @@
 #include "ncurses.h"
 
 #include "src/infrastructure/numToStringConverter/numToStringConverter.hpp"
+#include "src/infrastructure/parameters/parameters.hpp"
 
 class UI {
 public:
-  UI(int maxTimeSteps, int maxPicardIterations);
+  UI(Parameters params);
   ~UI();
 
 public:

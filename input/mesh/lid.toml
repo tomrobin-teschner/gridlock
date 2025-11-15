@@ -3,3 +3,4 @@ Lx = 1.0
 Ly = 1.0
 numX = 129
 numY = 129
+numGhostPoints = 1

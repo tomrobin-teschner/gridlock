@@ -1,6 +1,6 @@
 #include "src/infrastructure/stopWatch/stopWatch.hpp"
 
-StopWatch::StopWatch(int timeSteps) : _timeSteps(timeSteps) {
+StopWatch::StopWatch(Parameters params) : _timeSteps(params.solver<int>("time", "timeSteps")) {
   _start = std::chrono::high_resolution_clock::now();
 }
 

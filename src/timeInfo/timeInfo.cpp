@@ -1,9 +1,9 @@
-#include "src/timeStep/timeStep.hpp"
+#include "src/timeInfo/timeInfo.hpp"
 
-TimeStep::TimeStep(toml::parse_result parameters, const Mesh& mesh, FieldArrayManager fields)
-  : _mesh(mesh), _CFL(parameters["time"]["CFL"].value_or(0.0)), _fields(fields) { }
+TimeInfo::TimeInfo(Parameters params, const Mesh& mesh, FieldArrayManager fields)
+  : _params(params), _mesh(mesh), _CFL(params.solver<double>("time", "CFL")), _fields(fields) { }
 
-double TimeStep::getTimeStep() {
+double TimeInfo::getTimeStep() {
   double dt = std::numeric_limits<double>::max();
   _mesh.loop().loopWithBoundaries([&dt, this](int i, int j) {
     auto minSpacing = std::min(_mesh.dx(), _mesh.dy());

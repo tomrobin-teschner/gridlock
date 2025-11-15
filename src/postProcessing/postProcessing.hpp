@@ -13,10 +13,11 @@
 #include "src/fieldArray/fieldArray.hpp"
 #include "src/fieldArray/fieldArrayManager.hpp"
 #include "src/mesh/mesh.hpp"
+#include "src/infrastructure/parameters/parameters.hpp"
 
 class PostProcessing {
 public:
-  PostProcessing(FieldArrayManager fields, std::string filename, const Mesh& mesh);
+  PostProcessing(FieldArrayManager fields, Parameters params, const Mesh& mesh);
   ~PostProcessing() = default;
 
 public:

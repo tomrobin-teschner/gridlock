@@ -1,22 +1,10 @@
 #include "src/mesh/mesh.hpp"
 
-Mesh::Mesh(toml::parse_result meshParameters, int numGhostPoints)
-  : _meshParameters(meshParameters), _numGhostPoints(numGhostPoints),
-  _x(_meshParameters["mesh"]["numX"].value_or(0) + 2 * _numGhostPoints,
-    _meshParameters["mesh"]["numY"].value_or(0) + 2 * _numGhostPoints),
-  _y(_meshParameters["mesh"]["numX"].value_or(0) + 2 * _numGhostPoints,
-    _meshParameters["mesh"]["numY"].value_or(0) + 2 * _numGhostPoints),
-  _looper(_meshParameters["mesh"]["numX"].value_or(0), _meshParameters["mesh"]["numY"].value_or(0), _numGhostPoints) {
-
-    // store parameters
-  _lx = _meshParameters["mesh"]["Lx"].value_or(0.0);
-  _ly = _meshParameters["mesh"]["Ly"].value_or(0.0);
-  _numX = _meshParameters["mesh"]["numX"].value_or(0.0);
-  _numY = _meshParameters["mesh"]["numY"].value_or(0.0);
-  
-  // calculate dx and dy
-  _dx = _lx / (_numX - 1);
-  _dy = _ly / (_numY - 1);
+Mesh::Mesh(Parameters params) : _numGhostPoints(params.mesh<int>("mesh", "numGhostPoints")),
+  _numX(params.mesh<int>("mesh", "numX")), _numY(params.mesh<int>("mesh", "numY")),
+  _lx(params.mesh<double>("mesh", "Lx")), _ly(params.mesh<double>("mesh", "Ly")),
+  _dx(_lx / (_numX - 1)), _dy(_ly / (_numY - 1)), _x(_numX + 2 * _numGhostPoints, _numY + 2 * _numGhostPoints),
+  _y(_numX + 2 * _numGhostPoints, _numY + 2 * _numGhostPoints), _looper(_numX, _numY, _numGhostPoints) {
 
   // create mesh
   create();

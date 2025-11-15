@@ -1,7 +1,7 @@
 #include "src/infrastructure/ui/ui.hpp"
 
-UI::UI(int maxTimeSteps, int maxPicardIterations) : _maxTimeSteps(maxTimeSteps),
-  _maxPicardIterations(maxPicardIterations) {
+UI::UI(Parameters params) : _maxTimeSteps(params.solver<int>("time", "timeSteps")),
+  _maxPicardIterations(params.solver<int>("linearisation", "maxPicardIterations")) {
 
   initscr();
   printw("            _     _ _            _     \n");
@@ -11,7 +11,7 @@ UI::UI(int maxTimeSteps, int maxPicardIterations) : _maxTimeSteps(maxTimeSteps),
   printw(" \\__, |_|  |_|\\__,_|_|\\___/ \\___|_|\\_\\ \n");
   printw(" |___/                                 \n");
 
-  this->draw(2, 42, "Gridlock 1.0");
+  this->draw(2, 42, "Gridlock 0.11.0");
   this->draw(3, 42, "A 2D structured CFD solver for incompressible flows");
   this->draw(4, 42, "Tom-Robin Teschner");
 

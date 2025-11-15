@@ -1,15 +1,16 @@
 #pragma once
 
 #include "src/linearSolver/linearSolverBase.hpp"
+#include "src/mesh/mesh.hpp"
 
 template<typename MatrixType, typename VectorType, typename SolverType>
 class LinearSolverEigen : public LinearSolverBase<MatrixType, VectorType, SolverType> {
 public:
   using BaseClass = typename LinearSolverBase<MatrixType, VectorType, SolverType>;
 public:
-  LinearSolverEigen(int numX, int numY) : BaseClass(numX, numY) {
-    this->_A.resize(numX * numY, numX * numY);
-    this->_b.resize(numX * numY);
+  LinearSolverEigen(Parameters params, const Mesh& mesh, std::string ID) : BaseClass(params, mesh, ID) {
+    this->_A.resize(this->_numX * this->_numY, this->_numX * this->_numY);
+    this->_b.resize(this->_numX * this->_numY);
     setZero();
   }
 
@@ -31,10 +32,10 @@ public:
     this->_b(i) += value;
   }
 
-  virtual typename BaseClass::SolveType solve(int maxIterations, double tolerance) override {
+  virtual typename BaseClass::SolveType solve() override {
     this->_solver.compute(this->_A);
-    this->_solver.setMaxIterations(maxIterations);
-    this->_solver.setTolerance(tolerance);
+    this->_solver.setMaxIterations(this->_maxIterations);
+    this->_solver.setTolerance(this->_tolerance);
 
     auto x = this->_solver.solve(this->_b);
     auto iterations = this->_solver.iterations();

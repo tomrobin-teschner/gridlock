@@ -1,7 +1,7 @@
 #include "src/boundaryConditions/boundaryConditions.hpp"
 
-BoundaryConditions::BoundaryConditions(Mesh &mesh, FieldArrayManager fields, const toml::parse_result &bcParameters)
-  : _mesh(mesh), _fields(fields), _bcParameters(bcParameters) { }
+BoundaryConditions::BoundaryConditions(Parameters params, Mesh &mesh, FieldArrayManager fields)
+  : _params(params), _mesh(mesh), _fields(fields)  { }
 
 void BoundaryConditions::updateGhostPoints(int ID) {
   updateEastGhostPoints(ID);
@@ -19,9 +19,17 @@ void BoundaryConditions::updateGhostPoints(std::vector<int> IDs) {
   }
 }
 
+bool BoundaryConditions::fullyNeumann() {
+  auto eastBCType = _params.bcs<std::string>("boundaries", "east", "p", 0);
+  auto westBCType = _params.bcs<std::string>("boundaries", "west", "p", 0);
+  auto northBCType = _params.bcs<std::string>("boundaries", "north", "p", 0);
+  auto southBCType = _params.bcs<std::string>("boundaries", "south", "p", 0);
+  return (eastBCType == "neumann" && westBCType == "neumann" && northBCType == "neumann" && southBCType == "neumann");
+}
+
 void BoundaryConditions::updateEastGhostPoints(int ID) {
-  std::string eastBCType = _bcParameters["boundaries"]["east"][pvNames[ID]][0].value_or("");
-  double eastBCValue = _bcParameters["boundaries"]["east"][pvNames[ID]][1].value_or(0.0);
+  auto eastBCType = _params.bcs<std::string>("boundaries", "east", pvNames[ID], 0);
+  auto eastBCValue = _params.bcs<double>("boundaries", "east", pvNames[ID], 1);
   bool isDirichletEast = eastBCType == "dirichlet" ? true : false;
 
   _mesh.loop().eastBC([this, isDirichletEast, eastBCValue, ID](int i, int j) {
@@ -42,8 +50,8 @@ void BoundaryConditions::updateEastGhostPoints(int ID) {
 }
 
 void BoundaryConditions::updateWestGhostPoints(int ID) {
-  std::string westBCType = _bcParameters["boundaries"]["west"][pvNames[ID]][0].value_or("");
-  double westBCValue = _bcParameters["boundaries"]["west"][pvNames[ID]][1].value_or(0.0);
+  auto westBCType = _params.bcs<std::string>("boundaries", "west", pvNames[ID], 0);
+  auto westBCValue = _params.bcs<double>("boundaries", "west", pvNames[ID], 1);
   bool isDirichletWest = westBCType == "dirichlet" ? true : false;
  
   _mesh.loop().westBC([this, isDirichletWest, westBCValue, ID](int i, int j) {
@@ -64,8 +72,8 @@ void BoundaryConditions::updateWestGhostPoints(int ID) {
 }
 
 void BoundaryConditions::updateNorthGhostPoints(int ID) {
-  std::string northBCType = _bcParameters["boundaries"]["north"][pvNames[ID]][0].value_or("");
-  double northBCValue = _bcParameters["boundaries"]["north"][pvNames[ID]][1].value_or(0.0);
+  auto northBCType = _params.bcs<std::string>("boundaries", "north", pvNames[ID], 0);
+  auto northBCValue = _params.bcs<double>("boundaries", "north", pvNames[ID], 1);
   bool isDirichletNorth = northBCType == "dirichlet" ? true : false;
 
   _mesh.loop().northBC([this, isDirichletNorth, northBCValue, ID](int i, int j) {
@@ -86,8 +94,8 @@ void BoundaryConditions::updateNorthGhostPoints(int ID) {
 }
 
 void BoundaryConditions::updateSouthGhostPoints(int ID) {
-  std::string southBCType = _bcParameters["boundaries"]["south"][pvNames[ID]][0].value_or("");
-  double southBCValue = _bcParameters["boundaries"]["south"][pvNames[ID]][1].value_or(0.0);
+  auto southBCType = _params.bcs<std::string>("boundaries", "south", pvNames[ID], 0);
+  auto southBCValue = _params.bcs<double>("boundaries", "south", pvNames[ID], 1);
   bool isDirichletSouth = southBCType == "dirichlet" ? true : false;
 
   _mesh.loop().southBC([this, isDirichletSouth, southBCValue, ID](int i, int j) {

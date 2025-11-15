@@ -1,0 +1,4 @@
+[inputFiles]
+solverFile = "input/solver/channel.toml"
+meshFile = "input/mesh/channel.toml"
+boundaryConditionFile = "input/boundaryConditions/channel.toml"

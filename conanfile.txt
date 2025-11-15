@@ -1,6 +1,6 @@
 [requires]
 eigen/3.4.0
-tomlplusplus/3.4.0
+toml11/4.4.0
 ncurses/6.5
 
 [generators]

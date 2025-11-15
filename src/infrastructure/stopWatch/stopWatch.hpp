@@ -4,11 +4,13 @@
 #include <cmath>
 #include <tuple>
 
+#include "src/infrastructure/parameters/parameters.hpp"
+
 class StopWatch {
 public:
   using TimeType = std::tuple<int, int, int>;
 public:
-  StopWatch(int timeSteps);
+  StopWatch(Parameters params);
   ~StopWatch() = default;
 
   TimeType elapsed() const;

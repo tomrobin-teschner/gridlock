@@ -2,4 +2,4 @@
 add_subdirectory(ui)
 add_subdirectory(numToStringConverter)
 add_subdirectory(stopWatch)
-add_subdirectory(parameterFile)
+add_subdirectory(parameters)
