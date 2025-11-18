@@ -1,8 +1,11 @@
 ![Static Badge](https://img.shields.io/badge/version-0.11.0-red)
 
+> [!WARNING]
+> The solver is working for the test cases provided, but it does not yet support all features that are planned for this solver. The readme file will be updated once the solver is in working order and the version will be bumped to 1.x.x once ready for use.
+
 ## Installation and running
 
-Ensure that Python and pip are installed, as well as  C++ compiler. Then, isntall the required python packages with pip:
+Ensure that Python and pip are installed, as well as  C++ compiler. Then, install the required python packages with pip:
 
 ```bash
 pip install -r .\requirements.txt
